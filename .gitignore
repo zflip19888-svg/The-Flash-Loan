@@ -1,1 +1,34 @@
-.agents/.env
+# Environment
+.env
+bot/.env
+
+# Hardhat
+cache/
+artifacts/
+typechain-types/
+
+# Node
+node_modules/
+bot/node_modules/
+
+# Build outputs
+bot/dist/
+bot/logs/
+
+# Coverage
+coverage/
+coverage.json
+.solcover.js
+
+# Gas report
+gas-report.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

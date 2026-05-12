@@ -1,0 +1,10 @@
+{
+  "network": "mumbai",
+  "chainId": 80001,
+  "flashLoan": "",
+  "priceOracle": "",
+  "mockOracle": "",
+  "deployedAt": "",
+  "deployer": "",
+  "_note": "Run scripts/deploy-polygon-mumbai.js to populate this file."
+}

@@ -1,0 +1,10 @@
+{
+  "network": "polygon-mainnet",
+  "chainId": 137,
+  "flashLoan": "",
+  "priceOracle": "",
+  "mockOracle": null,
+  "deployedAt": "",
+  "deployer": "",
+  "_note": "Run scripts/deploy-polygon.js to populate this file."
+}
