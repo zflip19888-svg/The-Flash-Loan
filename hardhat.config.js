@@ -3,6 +3,11 @@ require("hardhat-gas-reporter");
 require("solidity-coverage");
 require("dotenv").config();
 
+// Detect whether we're running a fork test by inspecting argv
+const isForkTest = process.argv.some(
+  (a) => a.includes("fork.test") || a.includes("--fork")
+);
+
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   solidity: {
@@ -12,17 +17,20 @@ module.exports = {
         enabled: true,
         runs: 200,
       },
-      viaIR: false,
+      viaIR: true,
     },
   },
 
   networks: {
     hardhat: {
-      forking: {
-        url: process.env.POLYGON_RPC_URL || "https://polygon-rpc.com",
-        blockNumber: undefined, // latest
-        enabled: true,
-      },
+      // Forking is only enabled when running fork tests (requires POLYGON_RPC_URL)
+      forking: isForkTest && process.env.POLYGON_RPC_URL
+        ? {
+            url: process.env.POLYGON_RPC_URL,
+            blockNumber: undefined, // latest
+            enabled: true,
+          }
+        : { url: "https://polygon-rpc.com", enabled: false },
       chainId: 137,
     },
     polygon: {

@@ -13,13 +13,13 @@ const { expect }           = require("chai");
 const { ethers }           = require("hardhat");
 const { loadFixture }      = require("@nomicfoundation/hardhat-toolbox/network-helpers");
 
+// Dummy non-zero address used wherever a real contract isn't needed in unit tests
+const DUMMY = "0x0000000000000000000000000000000000000001";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Encode flash loan params the same way the bot does.
- */
 function encodeParams(tokenIn, tokenOut, dexA, dexB, minProfit) {
   return ethers.AbiCoder.defaultAbiCoder().encode(
     ["address", "address", "address", "address", "uint256"],
@@ -38,28 +38,26 @@ async function deployFixture() {
   const MockOracle = await ethers.getContractFactory("MockOracle");
   const mockOracle = await MockOracle.deploy(100_000_000n, 8);
 
-  // Minimal mock DEX factory & router (we use the real QuickSwap/Sushi constants
-  // but override the pool address in tests with a MockAavePool contract)
+  // Mock Aave pool + addresses provider
   const MockAavePool = await ethers.getContractFactory("MockAavePool");
   const mockPool     = await MockAavePool.deploy();
 
-  // PriceOraclePolygon with mock addresses
-  const DUMMY_FACTORY = ethers.ZeroAddress; // not used in these tests
+  const MockAddressesProvider = await ethers.getContractFactory("MockAddressesProvider");
+  const mockProvider          = await MockAddressesProvider.deploy(await mockPool.getAddress());
+
+  // PriceOraclePolygon — pass dummy non-zero addresses for factories
+  // (TWAP methods not exercised in these unit tests)
   const PriceOraclePolygon = await ethers.getContractFactory("PriceOraclePolygon");
   const priceOracle = await PriceOraclePolygon.deploy(
     await mockPool.getAddress(), // quickswap router (mock)
     await mockPool.getAddress(), // sushiswap router (mock)
-    DUMMY_FACTORY,
-    DUMMY_FACTORY,
+    DUMMY,                       // quickswap factory (not used in these tests)
+    DUMMY,                       // sushiswap factory (not used in these tests)
     [],
     []
   );
 
   // FlashLoanSecure
-  // We need a mock Aave PoolAddressesProvider pointing to mockPool
-  const MockAddressesProvider = await ethers.getContractFactory("MockAddressesProvider");
-  const mockProvider          = await MockAddressesProvider.deploy(await mockPool.getAddress());
-
   const FlashLoanSecure = await ethers.getContractFactory("FlashLoanSecure");
   const flashLoan = await FlashLoanSecure.deploy(
     await mockProvider.getAddress(),
@@ -79,13 +77,14 @@ async function deployFixture() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("FlashLoanSecurity", function () {
+
   // ── Access control ──────────────────────────────────────────────────────────
   describe("Access control", function () {
     it("non-owner cannot call initiateFlashLoan", async function () {
-      const { flashLoan, attacker, mockPool } = await loadFixture(deployFixture);
+      const { flashLoan, attacker } = await loadFixture(deployFixture);
       const USDC    = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
       const WMATIC  = "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270";
-      const params  = encodeParams(USDC, WMATIC, ethers.ZeroAddress, ethers.ZeroAddress, 0n);
+      const params  = encodeParams(USDC, WMATIC, DUMMY, DUMMY, 0n);
 
       await expect(
         flashLoan.connect(attacker).initiateFlashLoan(USDC, ethers.parseUnits("1000", 6), params)
@@ -95,7 +94,7 @@ describe("FlashLoanSecurity", function () {
     it("executeOperation reverts when called by non-Aave address", async function () {
       const { flashLoan, attacker } = await loadFixture(deployFixture);
       const USDC = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
-      const params = encodeParams(USDC, ethers.ZeroAddress, ethers.ZeroAddress, ethers.ZeroAddress, 0n);
+      const params = encodeParams(USDC, DUMMY, DUMMY, DUMMY, 0n);
 
       await expect(
         flashLoan.connect(attacker).executeOperation(
@@ -108,14 +107,14 @@ describe("FlashLoanSecurity", function () {
       const { flashLoan, mockPool, owner } = await loadFixture(deployFixture);
       const flashLoanAddress = await flashLoan.getAddress();
       const USDC   = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
-      const params = encodeParams(USDC, ethers.ZeroAddress, ethers.ZeroAddress, ethers.ZeroAddress, 0n);
+      const params = encodeParams(USDC, DUMMY, DUMMY, DUMMY, 0n);
 
-      // Mock pool calls executeOperation with wrong initiator
+      // Mock pool calls executeOperation with wrong initiator (owner instead of flashLoan)
       await expect(
         mockPool.callExecuteOperation(
           flashLoanAddress,
           USDC, 1000n, 1n,
-          owner.address, // wrong initiator
+          owner.address,  // wrong initiator
           params
         )
       ).to.be.reverted;
@@ -146,7 +145,7 @@ describe("FlashLoanSecurity", function () {
       const { flashLoan, owner } = await loadFixture(deployFixture);
       const USDC   = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
       const WMATIC = "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270";
-      const params = encodeParams(USDC, WMATIC, ethers.ZeroAddress, ethers.ZeroAddress, 0n);
+      const params = encodeParams(USDC, WMATIC, DUMMY, DUMMY, 0n);
 
       await flashLoan.connect(owner).pause();
 
@@ -159,17 +158,15 @@ describe("FlashLoanSecurity", function () {
   // ── Daily volume limit ───────────────────────────────────────────────────────
   describe("Daily volume limit", function () {
     it("enforces the daily volume cap on a given asset", async function () {
-      const { flashLoan, owner, mockPool } = await loadFixture(deployFixture);
-      const flashLoanAddress = await flashLoan.getAddress();
+      const { flashLoan, owner } = await loadFixture(deployFixture);
       const USDC = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
+      const WMATIC = "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270";
 
       // Set daily limit to 500 USDC (6 decimals)
       const limit = ethers.parseUnits("500", 6);
       await flashLoan.connect(owner).setDailyVolumeLimit(USDC, limit);
 
-      // Attempt to borrow 501 USDC — should breach the limit
-      const WMATIC = "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270";
-      const params = encodeParams(USDC, WMATIC, ethers.ZeroAddress, ethers.ZeroAddress, 0n);
+      const params = encodeParams(USDC, WMATIC, DUMMY, DUMMY, 0n);
       const amount = ethers.parseUnits("501", 6);
 
       await expect(
@@ -177,14 +174,11 @@ describe("FlashLoanSecurity", function () {
       ).to.be.revertedWithCustomError(flashLoan, "DailyVolumeLimitExceeded");
     });
 
-    it("allows borrowing under the daily limit", async function () {
+    it("allows borrowing under the daily limit (volume counter starts at 0)", async function () {
       const { flashLoan, owner } = await loadFixture(deployFixture);
       const USDC = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
 
-      // Set a generous limit
       await flashLoan.connect(owner).setDailyVolumeLimit(USDC, ethers.parseUnits("1000000", 6));
-
-      // dailyVolumeUsed should still be 0 before any flash loan
       expect(await flashLoan.dailyVolumeUsed(USDC)).to.equal(0n);
     });
 
@@ -213,7 +207,6 @@ describe("FlashLoanSecurity", function () {
     it("getChainlinkPrice reverts on stale feed", async function () {
       const { priceOracle, mockOracle } = await loadFixture(deployFixture);
 
-      // Set updatedAt to > 1 hour in the past
       const staleTime = Math.floor(Date.now() / 1000) - 7201;
       await mockOracle.setUpdatedAt(staleTime);
 
@@ -224,7 +217,6 @@ describe("FlashLoanSecurity", function () {
 
     it("getChainlinkPrice succeeds with a fresh feed", async function () {
       const { priceOracle, mockOracle } = await loadFixture(deployFixture);
-      // updatedAt defaults to block.timestamp in constructor — should be fresh
       const [answer] = await priceOracle.getChainlinkPrice(await mockOracle.getAddress());
       expect(answer).to.equal(100_000_000n);
     });
@@ -235,21 +227,21 @@ describe("FlashLoanSecurity", function () {
     it("requires new owner to accept before transfer completes", async function () {
       const { flashLoan, owner, newOwner } = await loadFixture(deployFixture);
 
-      // Step 1: propose new owner
       await flashLoan.connect(owner).transferOwnership(newOwner.address);
-      expect(await flashLoan.owner()).to.equal(owner.address); // not yet transferred
+      expect(await flashLoan.owner()).to.equal(owner.address);
       expect(await flashLoan.pendingOwner()).to.equal(newOwner.address);
 
-      // Step 2: new owner accepts
       await flashLoan.connect(newOwner).acceptOwnership();
       expect(await flashLoan.owner()).to.equal(newOwner.address);
     });
 
-    it("pending owner can renounce the transfer", async function () {
+    it("current owner can re-propose to effectively cancel pending transfer", async function () {
       const { flashLoan, owner, newOwner } = await loadFixture(deployFixture);
 
       await flashLoan.connect(owner).transferOwnership(newOwner.address);
-      // Owner re-proposes themselves to cancel
+      expect(await flashLoan.pendingOwner()).to.equal(newOwner.address);
+
+      // Overwrite with owner themselves
       await flashLoan.connect(owner).transferOwnership(owner.address);
       expect(await flashLoan.pendingOwner()).to.equal(owner.address);
     });
@@ -261,7 +253,7 @@ describe("FlashLoanSecurity", function () {
       const { flashLoan, owner } = await loadFixture(deployFixture);
       const USDC   = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
       const WMATIC = "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270";
-      const params = encodeParams(USDC, WMATIC, ethers.ZeroAddress, ethers.ZeroAddress, 0n);
+      const params = encodeParams(USDC, WMATIC, DUMMY, DUMMY, 0n);
 
       await expect(
         flashLoan.connect(owner).initiateFlashLoan(USDC, 0n, params)
@@ -271,7 +263,7 @@ describe("FlashLoanSecurity", function () {
     it("reverts on zero asset address", async function () {
       const { flashLoan, owner } = await loadFixture(deployFixture);
       const WMATIC = "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270";
-      const params = encodeParams(ethers.ZeroAddress, WMATIC, ethers.ZeroAddress, ethers.ZeroAddress, 0n);
+      const params = encodeParams(ethers.ZeroAddress, WMATIC, DUMMY, DUMMY, 0n);
 
       await expect(
         flashLoan.connect(owner).initiateFlashLoan(ethers.ZeroAddress, 1000n, params)
