@@ -14,7 +14,11 @@
     "lint": "eslint . --ext .js,.ts",
     "lint:fix": "eslint . --ext .js,.ts --fix",
     "format": "prettier --write '**/*.{js,ts,sol,json}'",
-    "clean": "hardhat clean && rm -rf cache artifacts"
+    "clean": "hardhat clean && rm -rf cache artifacts",
+    "test:unit": "hardhat test test/FlashLoanSecurity.js test/FlashLoanPolygon.test.js test/Reproduction.test.js",
+    "test:gas": "REPORT_GAS=true hardhat test test/FlashLoanSecurity.js test/FlashLoanPolygon.test.js test/Reproduction.test.js",
+    "verify:check": "hardhat run scripts/verify-deployment.js --network polygon",
+    "verify:mumbai": "hardhat run scripts/verify-deployment.js --network mumbai"
   },
   "dependencies": {
     "@aave/core-v3": "^1.19.3",
