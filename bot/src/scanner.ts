@@ -2,19 +2,17 @@
  * @file scanner.ts
  * @notice ArbitrageScanner — core engine of the flash loan arbitrage bot.
  *
- * On every new block:
- *   1. Warm Chainlink price cache (on-chain, no CoinGecko)
- *   2. Fetch gas price
- *   3. For each configured token pair, query on-chain spread via PriceOraclePolygon
- *   4. Estimate net profit after gas + Aave fee
- *   5. If profit > MIN_PROFIT_USD and gas < MAX_GAS_GWEI, execute
- *   6. Submit tx via NonceManager to prevent nonce collisions across pairs
- *
- * Risk management:
- *   • Skip when gas > MAX_GAS_GWEI
- *   • Track dailyPnL; halt if drawdown > MAX_DAILY_LOSS_USD
- *   • Retry up to MAX_RETRIES with exponential back-off
- *   • Resync nonce on "nonce too low" errors
+ * Per-block pipeline:
+ *   1. Flush Chainlink cache → warm fresh prices
+ *   2. Check gas vs MAX_GAS_GWEI guard
+ *   3. For each token pair:
+ *      a. Fetch DEX pool depth on both QuickSwap + SushiSwap
+ *      b. Skip pair if EITHER DEX side has < MIN_POOL_DEPTH_USD liquidity
+ *      c. Query on-chain spread via PriceOraclePolygon
+ *      d. Estimate net profit (spread − gas − Aave fee)
+ *      e. Execute if profit > MIN_PROFIT_USD
+ *   4. Track daily PnL; halt if drawdown > MAX_DAILY_LOSS_USD
+ *   5. NonceManager ensures sequential nonces — no concurrent tx collisions
  */
 
 import {
@@ -23,7 +21,6 @@ import {
   WebSocketProvider,
   JsonRpcProvider,
   Wallet,
-  parseUnits,
   formatUnits,
 } from "ethers";
 import {
@@ -40,12 +37,37 @@ import {
   PRICE_ORACLE_ABI,
 } from "./config";
 import { logInfo, logWarn, logError, logDebug } from "./logger";
-import { NonceManager }      from "./nonce-manager";
+import { NonceManager }                          from "./nonce-manager";
 import { ChainlinkPriceFeed, TOKEN_TO_FEED, FEEDS } from "./price-feed";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Minimum USD liquidity required on EACH DEX side for a pair to be scannable */
+const MIN_POOL_DEPTH_USD = 50_000;
+
+const QUICKSWAP_FACTORY = "0x5757371414417b8C6CAad45bAeF941aBc7d3Ab32";
+const SUSHISWAP_FACTORY = "0xc35DADB65012eC5796536bD9864eD8773aBc74C4";
+
+const FACTORY_ABI = [
+  "function getPair(address tokenA, address tokenB) external view returns (address pair)",
+] as const;
+
+const PAIR_ABI = [
+  "function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)",
+  "function token0() external view returns (address)",
+] as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
+
+interface DepthResult {
+  depthUsd:   number;
+  reserveIn:  bigint;
+  reserveOut: bigint;
+}
 
 interface ArbitrageOpportunity {
   pair:               TokenPair;
@@ -61,15 +83,11 @@ interface ArbitrageOpportunity {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((r) => setTimeout(r, ms));
 }
 
-function estimateGasCostUsd(
-  gasPrice: bigint,
-  gasUnits: number,
-  maticPriceUsd: number
-): number {
-  return Number(formatUnits(gasPrice * BigInt(gasUnits), 18)) * maticPriceUsd;
+function estimateGasCostUsd(gasPrice: bigint, gasUnits: number, maticUsd: number): number {
+  return Number(formatUnits(gasPrice * BigInt(gasUnits), 18)) * maticUsd;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -82,13 +100,14 @@ export class ArbitrageScanner {
   private wallet:            Wallet;
   private flashLoanContract: Contract;
   private priceOracle:       Contract;
+  private qsFactory:         Contract;
+  private ssFactory:         Contract;
   private nonceManager:      NonceManager;
   private priceFeed:         ChainlinkPriceFeed;
 
   private dailyPnLUsd  = 0;
   private dailyPnLDate = "";
 
-  /** True while an execution is in-flight */
   private executing = false;
   private running   = false;
 
@@ -96,20 +115,12 @@ export class ArbitrageScanner {
     this.httpProvider = new JsonRpcProvider(ENV.POLYGON_RPC_URL);
     this.wallet       = new Wallet(ENV.PRIVATE_KEY, this.httpProvider);
 
-    this.flashLoanContract = new Contract(
-      ENV.FLASH_LOAN_ADDRESS,
-      FLASH_LOAN_ABI,
-      this.wallet
-    );
-
-    this.priceOracle = new Contract(
-      ENV.PRICE_ORACLE_ADDRESS,
-      PRICE_ORACLE_ABI,
-      this.httpProvider
-    );
-
-    this.nonceManager = new NonceManager(this.httpProvider, this.wallet.address);
-    this.priceFeed    = new ChainlinkPriceFeed(this.httpProvider);
+    this.flashLoanContract = new Contract(ENV.FLASH_LOAN_ADDRESS, FLASH_LOAN_ABI, this.wallet);
+    this.priceOracle       = new Contract(ENV.PRICE_ORACLE_ADDRESS, PRICE_ORACLE_ABI, this.httpProvider);
+    this.qsFactory         = new Contract(QUICKSWAP_FACTORY, FACTORY_ABI, this.httpProvider);
+    this.ssFactory         = new Contract(SUSHISWAP_FACTORY, FACTORY_ABI, this.httpProvider);
+    this.nonceManager      = new NonceManager(this.httpProvider, this.wallet.address);
+    this.priceFeed         = new ChainlinkPriceFeed(this.httpProvider);
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -118,36 +129,67 @@ export class ArbitrageScanner {
 
   async start(): Promise<void> {
     this.running = true;
-    logInfo("ArbitrageScanner starting…", {
+    logInfo("ArbitrageScanner starting", {
       account:   this.wallet.address,
       flashLoan: ENV.FLASH_LOAN_ADDRESS,
       oracle:    ENV.PRICE_ORACLE_ADDRESS,
+      minProfitUsd:    MIN_PROFIT_USD,
+      maxGasGwei:      MAX_GAS_GWEI,
+      minPoolDepthUsd: MIN_POOL_DEPTH_USD,
     });
 
-    // Pre-warm Chainlink price cache before first block
     await this.priceFeed.warmCache().catch((e) =>
-      logWarn("Price cache warm failed (will retry per-block)", { error: String(e) })
+      logWarn("Price cache warm failed", { error: String(e) })
     );
 
-    try {
-      this.wsProvider = new WebSocketProvider(ENV.POLYGON_WS_URL);
-      this.wsProvider.on("block", async (blockNumber: number) => {
-        if (!this.running) return;
-        await this.onBlock(blockNumber).catch((err) =>
-          logError("onBlock error", err, { blockNumber })
-        );
-      });
-      logInfo("WebSocket subscription established.");
-    } catch (err) {
-      logWarn("WebSocket unavailable — falling back to HTTP polling.", { err });
-      this._startPolling();
+    // Prefer WebSocket for zero-latency block events; fall back to HTTP polling
+    if (ENV.POLYGON_WS_URL) {
+      try {
+        this.wsProvider = new WebSocketProvider(ENV.POLYGON_WS_URL);
+        this.wsProvider.on("block", (blockNumber: number) => {
+          if (!this.running) return;
+          this.onBlock(blockNumber).catch((err) =>
+            logError("onBlock error", err, { blockNumber })
+          );
+        });
+        logInfo("WebSocket block subscription active");
+        return;
+      } catch (err) {
+        logWarn("WebSocket failed — falling back to HTTP polling", { err: String(err) });
+      }
     }
+    this._startPolling();
   }
 
   async stop(): Promise<void> {
     this.running = false;
     if (this.wsProvider) await this.wsProvider.destroy();
-    logInfo("ArbitrageScanner stopped.");
+    logInfo("ArbitrageScanner stopped", { dailyPnLUsd: this.dailyPnLUsd });
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // HTTP polling fallback (~2 s interval)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  private _startPolling(): void {
+    logInfo("HTTP polling mode active (2 s interval)");
+    let lastBlock = 0;
+    const poll = async () => {
+      if (!this.running) return;
+      try {
+        const block = await this.httpProvider.getBlockNumber();
+        if (block > lastBlock) {
+          lastBlock = block;
+          await this.onBlock(block).catch((err) =>
+            logError("onBlock error (poll)", err, { block })
+          );
+        }
+      } catch (err) {
+        logError("Polling error", err);
+      }
+      setTimeout(poll, 2_000);
+    };
+    poll();
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -155,23 +197,22 @@ export class ArbitrageScanner {
   // ──────────────────────────────────────────────────────────────────────────
 
   async onBlock(blockNumber: number): Promise<void> {
-    logDebug("New block", { blockNumber });
+    logDebug("Block", { blockNumber });
     this._resetDailyPnLIfNeeded();
 
     if (this.dailyPnLUsd < -MAX_DAILY_LOSS_USD) {
-      logWarn("Daily loss limit reached — scanner halted for the day.", {
+      logWarn("Daily loss limit reached — halted for today", {
         dailyPnLUsd: this.dailyPnLUsd,
-        limit:       MAX_DAILY_LOSS_USD,
+        limit: MAX_DAILY_LOSS_USD,
       });
       return;
     }
 
     if (this.executing) {
-      logDebug("Execution in-flight — skipping block.", { blockNumber });
+      logDebug("Execution in-flight — skipping block", { blockNumber });
       return;
     }
 
-    // Flush stale cached prices at the start of each block
     this.priceFeed.flushCache();
 
     const [gasPrice, maticUsd] = await Promise.all([
@@ -181,86 +222,153 @@ export class ArbitrageScanner {
 
     const gasPriceGwei = Number(formatUnits(gasPrice, "gwei"));
     if (gasPriceGwei > MAX_GAS_GWEI) {
-      logWarn("Gas too high — skipping block.", { gasPriceGwei, maxGwei: MAX_GAS_GWEI });
+      logWarn("Gas too high — skipping block", { gasPriceGwei, max: MAX_GAS_GWEI });
       return;
     }
 
     for (const pair of TOKEN_PAIRS) {
       try {
-        const tokenInPriceUsd = await this.priceFeed.getTokenPriceUsd(pair.tokenIn, maticUsd);
-        const opportunity = await this._evaluatePair(pair, gasPrice, maticUsd, tokenInPriceUsd);
-        if (opportunity) {
-          logInfo("Opportunity found!", {
-            pair:               pair.name,
-            profitUsd:          opportunity.estimatedProfitUsd.toFixed(2),
-            cheaperDex:         opportunity.cheaperDex,
-            expensiveDex:       opportunity.expensiveDex,
-            gasPriceGwei:       gasPriceGwei.toFixed(2),
+        const opp = await this._evaluatePair(pair, gasPrice, maticUsd);
+        if (opp) {
+          logInfo("Opportunity found", {
+            pair:        pair.name,
+            profitUsd:   opp.estimatedProfitUsd.toFixed(2),
+            cheaperDex:  opp.cheaperDex,
+            gasPriceGwei: gasPriceGwei.toFixed(1),
           });
-          await this.executeArbitrage(opportunity);
-          break;
+          await this.executeArbitrage(opp);
+          break; // one trade per block
         }
       } catch (err) {
-        logError(`Failed evaluating pair ${pair.name}`, err);
+        logError(`Evaluation error — ${pair.name}`, err);
       }
     }
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Opportunity evaluation
+  // Liquidity depth check
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Returns the USD depth of the tokenIn side for a given factory's pair.
+   * Returns 0 if the pair doesn't exist or reserves are empty.
+   */
+  private async _poolDepth(
+    factory:      Contract,
+    tokenIn:      string,
+    tokenOut:     string,
+    tokenInDecimals: number,
+    tokenInPriceUsd: number,
+  ): Promise<DepthResult> {
+    try {
+      const pairAddr: string = await factory.getPair(tokenIn, tokenOut);
+      if (!pairAddr || pairAddr === ethers.ZeroAddress) {
+        return { depthUsd: 0, reserveIn: 0n, reserveOut: 0n };
+      }
+
+      const pair = new Contract(pairAddr, PAIR_ABI, this.httpProvider);
+      const [[r0, r1], t0]: [[bigint, bigint, number], string] = await Promise.all([
+        pair.getReserves(),
+        pair.token0(),
+      ]);
+
+      const isToken0 = t0.toLowerCase() === tokenIn.toLowerCase();
+      const reserveIn  = isToken0 ? r0 : r1;
+      const reserveOut = isToken0 ? r1 : r0;
+
+      const resInFloat = parseFloat(formatUnits(reserveIn, tokenInDecimals));
+      const depthUsd   = resInFloat * tokenInPriceUsd;
+
+      return { depthUsd, reserveIn, reserveOut };
+    } catch {
+      return { depthUsd: 0, reserveIn: 0n, reserveOut: 0n };
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Pair evaluation (depth check → spread check → profit calc)
   // ──────────────────────────────────────────────────────────────────────────
 
   private async _evaluatePair(
-    pair:             TokenPair,
-    gasPrice:         bigint,
-    maticUsd:         number,
-    tokenInPriceUsd:  number
+    pair:     TokenPair,
+    gasPrice: bigint,
+    maticUsd: number,
   ): Promise<ArbitrageOpportunity | null> {
-    const [spread, cheaperDex, expensiveDex]: [bigint, string, string] =
-      await this.priceOracle.getArbitrageSpread(pair.tokenIn, pair.tokenOut, pair.loanAmount);
+
+    // ── Token prices ──────────────────────────────────────────────────────────
+    const tokenInPriceUsd  = await this.priceFeed.getTokenPriceUsd(pair.tokenIn, 0);
+    const tokenOutPriceUsd = await this.priceFeed.getTokenPriceUsd(pair.tokenOut, 0);
+
+    if (tokenInPriceUsd === 0) {
+      logDebug(`No price for tokenIn — skipping ${pair.name}`);
+      return null;
+    }
+
+    // Decimals: USDC/WBTC special cases; default 18
+    const inDecimals = _decimalsOf(pair.tokenIn);
+
+    // ── Depth check (parallel) ────────────────────────────────────────────────
+    const [qsDepth, ssDepth] = await Promise.all([
+      this._poolDepth(this.qsFactory, pair.tokenIn, pair.tokenOut, inDecimals, tokenInPriceUsd),
+      this._poolDepth(this.ssFactory, pair.tokenIn, pair.tokenOut, inDecimals, tokenInPriceUsd),
+    ]);
+
+    const minDepth = Math.min(qsDepth.depthUsd, ssDepth.depthUsd);
+
+    if (minDepth < MIN_POOL_DEPTH_USD) {
+      logDebug(`Depth filter — skipping ${pair.name}`, {
+        qsDepthUsd: qsDepth.depthUsd.toFixed(0),
+        ssDepthUsd: ssDepth.depthUsd.toFixed(0),
+        minRequired: MIN_POOL_DEPTH_USD,
+      });
+      return null;
+    }
+
+    // ── Spread check ──────────────────────────────────────────────────────────
+    let spread: bigint, cheaperDex: string, expensiveDex: string;
+    try {
+      [spread, cheaperDex, expensiveDex] = await this.priceOracle.getArbitrageSpread(
+        pair.tokenIn, pair.tokenOut, pair.loanAmount
+      );
+    } catch (err) {
+      logDebug(`getArbitrageSpread failed — ${pair.name}`, { err: String(err) });
+      return null;
+    }
 
     if (spread === 0n) return null;
 
-    // Determine tokenOut decimals (USDC = 6, everything else = 18)
-    const isUsdcOut = pair.tokenOut.toLowerCase() ===
-      "0x2791bca1f2de4661ed88a30c99a7a9449aa84174";
-    const outDecimals = isUsdcOut ? 6 : 18;
-    const tokenOutPriceUsd = isUsdcOut
-      ? await this.priceFeed.getPrice(FEEDS.USDC_USD, 1.0)
-      : await this.priceFeed.getTokenPriceUsd(pair.tokenOut, tokenInPriceUsd);
+    // ── Profit estimate ───────────────────────────────────────────────────────
+    const outDecimals    = _decimalsOf(pair.tokenOut);
+    const spreadUsd      = parseFloat(formatUnits(spread, outDecimals)) *
+                           (tokenOutPriceUsd || 1);
+    const gasCostUsd     = estimateGasCostUsd(gasPrice, ESTIMATED_GAS_UNITS, maticUsd);
+    const loanNotional   = parseFloat(formatUnits(pair.loanAmount, inDecimals)) * tokenInPriceUsd;
+    const aaveFeeUsd     = loanNotional * 0.0005;
+    const estimatedProfit = spreadUsd - gasCostUsd - aaveFeeUsd;
 
-    const spreadUsd  = Number(formatUnits(spread, outDecimals)) * tokenOutPriceUsd;
-    const gasCostUsd = estimateGasCostUsd(gasPrice, ESTIMATED_GAS_UNITS, maticUsd);
-
-    // Aave fee: 0.05% of loan notional in tokenIn
-    const loanNotionalUsd = Number(formatUnits(pair.loanAmount, 18)) * tokenInPriceUsd;
-    const aaveFeeUsd      = loanNotionalUsd * 0.0005;
-
-    const estimatedProfitUsd = spreadUsd - gasCostUsd - aaveFeeUsd;
-
-    logDebug("Pair evaluated", {
-      pair:               pair.name,
-      spreadUsd:          spreadUsd.toFixed(4),
-      gasCostUsd:         gasCostUsd.toFixed(4),
-      aaveFeeUsd:         aaveFeeUsd.toFixed(4),
-      estimatedProfitUsd: estimatedProfitUsd.toFixed(4),
+    logDebug(`Evaluated ${pair.name}`, {
+      qsDepth: qsDepth.depthUsd.toFixed(0),
+      ssDepth: ssDepth.depthUsd.toFixed(0),
+      spreadUsd: spreadUsd.toFixed(2),
+      gasCostUsd: gasCostUsd.toFixed(3),
+      aaveFee: aaveFeeUsd.toFixed(3),
+      netProfit: estimatedProfit.toFixed(2),
     });
 
-    if (estimatedProfitUsd < MIN_PROFIT_USD) return null;
+    if (estimatedProfit < MIN_PROFIT_USD) return null;
 
-    return { pair, spread, cheaperDex, expensiveDex, estimatedProfitUsd, gasPrice };
+    return { pair, spread, cheaperDex, expensiveDex, estimatedProfitUsd: estimatedProfit, gasPrice };
   }
 
   // ──────────────────────────────────────────────────────────────────────────
   // Execution
   // ──────────────────────────────────────────────────────────────────────────
 
-  async executeArbitrage(opportunity: ArbitrageOpportunity): Promise<void> {
+  async executeArbitrage(opp: ArbitrageOpportunity): Promise<void> {
     this.executing = true;
-    const { pair, cheaperDex, expensiveDex, estimatedProfitUsd, gasPrice } = opportunity;
+    const { pair, cheaperDex, expensiveDex, estimatedProfitUsd, gasPrice } = opp;
 
-    // minProfit = 0.05% of loan — conservative on-chain slippage guard
-    const minProfitNative = (pair.loanAmount * 5n) / 10_000n;
+    const minProfitNative = (pair.loanAmount * 5n) / 10_000n; // 0.05% of loan
 
     const params = ethers.AbiCoder.defaultAbiCoder().encode(
       ["address", "address", "address", "address", "uint256"],
@@ -271,64 +379,55 @@ export class ArbitrageScanner {
     while (attempt <= MAX_RETRIES) {
       const nonce = await this.nonceManager.acquire();
       try {
-        logInfo(`Submitting flash loan (attempt ${attempt + 1}/${MAX_RETRIES + 1})`, {
-          pair:         pair.name,
-          loanAmount:   formatUnits(pair.loanAmount, 18),
-          cheaperDex,
-          expensiveDex,
-          nonce,
-          gasPriceGwei: Number(formatUnits(gasPrice, "gwei")).toFixed(2),
+        logInfo(`Flash loan attempt ${attempt + 1}/${MAX_RETRIES + 1}`, {
+          pair: pair.name, cheaperDex, expensiveDex, nonce,
+          gasPriceGwei: Number(formatUnits(gasPrice, "gwei")).toFixed(1),
+          estimatedProfitUsd: estimatedProfitUsd.toFixed(2),
         });
 
         const tx = await this.flashLoanContract.initiateFlashLoan(
-          pair.tokenIn,
-          pair.loanAmount,
-          params,
-          {
-            gasPrice,
-            gasLimit: BigInt(ESTIMATED_GAS_UNITS) + 100_000n,
-            nonce,
-          }
+          pair.tokenIn, pair.loanAmount, params,
+          { gasPrice, gasLimit: BigInt(ESTIMATED_GAS_UNITS) + 100_000n, nonce }
         );
-
         this.nonceManager.commit();
-        logInfo("Transaction submitted", { txHash: tx.hash });
 
+        logInfo("Tx submitted", { txHash: tx.hash });
         const receipt = await tx.wait(1);
+
         if (receipt?.status === 1) {
-          logInfo("✅ Arbitrage succeeded!", {
-            txHash:    receipt.hash,
+          logInfo("Trade executed successfully", {
+            txHash:    tx.hash,
             gasUsed:   receipt.gasUsed.toString(),
+            block:     receipt.blockNumber,
             profitUsd: estimatedProfitUsd.toFixed(2),
           });
           this.dailyPnLUsd += estimatedProfitUsd;
         } else {
-          logError("Transaction reverted", undefined, { txHash: receipt?.hash });
-          this.dailyPnLUsd -= estimateGasCostUsd(gasPrice, Number(receipt?.gasUsed ?? 500000n), 0.9);
+          logWarn("Tx mined but reverted", { txHash: tx.hash });
+          this.dailyPnLUsd -= estimateGasCostUsd(
+            gasPrice, Number(receipt?.gasUsed ?? ESTIMATED_GAS_UNITS),
+            await this.priceFeed.getPrice(FEEDS.MATIC_USD, 0.9)
+          );
         }
         break;
 
       } catch (err: unknown) {
-        const isNonceLow = _isNonceLow(err);
-        if (isNonceLow) {
-          logWarn("Nonce too low — resyncing…", { attempt });
+        const msg = err instanceof Error ? err.message : String(err);
+
+        if (msg.includes("nonce too low") || msg.includes("replacement fee too low")) {
+          logWarn("Nonce error — resyncing", { attempt });
+          this.nonceManager.rollback();
           await this.nonceManager.resync();
-          attempt++;
-          continue;
+        } else {
+          this.nonceManager.rollback();
         }
 
-        const isTransient = _isTransientError(err);
-        if (!isTransient || attempt >= MAX_RETRIES) {
-          logError("Flash loan failed permanently", err, { pair: pair.name, attempt });
-          this.nonceManager.rollback();
+        if (attempt >= MAX_RETRIES) {
+          logError(`All retries exhausted for ${pair.name}`, err);
           break;
         }
-
-        this.nonceManager.rollback();
-        const backoff = RETRY_BASE_DELAY_MS * 2 ** attempt;
-        logWarn(`Transient error — retrying in ${backoff}ms`, { attempt, error: String(err) });
-        await sleep(backoff);
         attempt++;
+        await sleep(RETRY_BASE_DELAY_MS * 2 ** attempt);
       }
     }
 
@@ -340,56 +439,33 @@ export class ArbitrageScanner {
   // ──────────────────────────────────────────────────────────────────────────
 
   private async _fetchGasPrice(): Promise<bigint> {
-    const feeData = await this.httpProvider.getFeeData();
-    return feeData.gasPrice ?? parseUnits("50", "gwei");
+    try {
+      const fee = await this.httpProvider.getFeeData();
+      return fee.gasPrice ?? 100_000_000_000n; // 100 Gwei fallback
+    } catch {
+      return 100_000_000_000n;
+    }
   }
 
   private _resetDailyPnLIfNeeded(): void {
     const today = new Date().toISOString().slice(0, 10);
-    if (this.dailyPnLDate !== today) {
-      logInfo("Resetting daily PnL tracker.", {
-        previousDate: this.dailyPnLDate,
-        previousPnL:  this.dailyPnLUsd,
-      });
+    if (today !== this.dailyPnLDate) {
+      if (this.dailyPnLDate) {
+        logInfo("Daily PnL reset", { date: this.dailyPnLDate, pnlUsd: this.dailyPnLUsd.toFixed(2) });
+      }
       this.dailyPnLUsd  = 0;
       this.dailyPnLDate = today;
     }
   }
-
-  private _startPolling(): void {
-    const poll = async () => {
-      while (this.running) {
-        try {
-          const blockNumber = await this.httpProvider.getBlockNumber();
-          await this.onBlock(blockNumber);
-        } catch (err) {
-          logError("Polling error", err);
-        }
-        await sleep(12_000);
-      }
-    };
-    poll().catch((err) => logError("Polling loop crashed", err));
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Error classification helpers
+// Token decimal helper
 // ─────────────────────────────────────────────────────────────────────────────
 
-function _isNonceLow(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const msg = err.message.toLowerCase();
-  return msg.includes("nonce too low") || msg.includes("already known");
-}
-
-function _isTransientError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const msg = err.message.toLowerCase();
-  return (
-    msg.includes("network") ||
-    msg.includes("timeout") ||
-    msg.includes("rate limit") ||
-    msg.includes("replacement fee too low") ||
-    msg.includes("server error")
-  );
+function _decimalsOf(tokenAddress: string): number {
+  const addr = tokenAddress.toLowerCase();
+  if (addr === "0x2791bca1f2de4661ed88a30c99a7a9449aa84174") return 6;  // USDC
+  if (addr === "0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6") return 8;  // WBTC
+  return 18;
 }

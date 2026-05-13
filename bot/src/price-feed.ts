@@ -1,18 +1,14 @@
 /**
  * @file price-feed.ts
- * @notice On-chain Chainlink price feed reader — replaces the CoinGecko HTTP call
- *         in scanner.ts with direct on-chain reads.  No external HTTP dependency.
- *
- * Usage:
- *   const feed = new ChainlinkPriceFeed(provider);
- *   const maticUsd = await feed.getPrice(FEEDS.MATIC_USD);  // returns float
+ * @notice On-chain Chainlink price feed reader with per-block TTL cache.
+ *         No external HTTP dependency — reads AggregatorV3 directly.
  */
 
 import { Contract, JsonRpcProvider } from "ethers";
 import { logWarn, logError } from "./logger";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Chainlink AggregatorV3 ABI (minimal)
+// ABI
 // ─────────────────────────────────────────────────────────────────────────────
 
 const AGGREGATOR_ABI = [
@@ -21,7 +17,7 @@ const AGGREGATOR_ABI = [
 ] as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Well-known Polygon mainnet Chainlink feeds
+// Polygon mainnet Chainlink feeds
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const FEEDS = {
@@ -32,33 +28,19 @@ export const FEEDS = {
   DAI_USD   : "0x4746DeC9e833A82EC7C2C1356372CcF2cfcD2F3D",
 } as const;
 
-/** Map from token address → Chainlink feed address */
+/** Token address (lowercase) → Chainlink feed address */
 export const TOKEN_TO_FEED: Record<string, string> = {
-  "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270": FEEDS.MATIC_USD, // WMATIC
-  "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174": FEEDS.USDC_USD,  // USDC
-  "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619": FEEDS.ETH_USD,   // WETH
+  "0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270": FEEDS.MATIC_USD, // WMATIC
+  "0x2791bca1f2de4661ed88a30c99a7a9449aa84174": FEEDS.USDC_USD,  // USDC
+  "0x7ceb23fd6bc0add59e62ac25578270cff1b9f619": FEEDS.ETH_USD,   // WETH
+  "0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6": FEEDS.BTC_USD,   // WBTC
+  "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063": FEEDS.DAI_USD,   // DAI
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Max staleness for price feed data
-// ─────────────────────────────────────────────────────────────────────────────
+const MAX_FEED_AGE_S = 3600; // reject stale data older than 1 h
+const CACHE_TTL_MS   = 30_000;
 
-const MAX_FEED_AGE_S = 3600; // 1 hour
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Cache (TTL = 30 seconds to avoid hammering RPC)
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface CacheEntry {
-  price:     number;
-  fetchedAt: number; // unix ms
-}
-
-const CACHE_TTL_MS = 30_000;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ChainlinkPriceFeed
-// ─────────────────────────────────────────────────────────────────────────────
+interface CacheEntry { price: number; fetchedAt: number; }
 
 export class ChainlinkPriceFeed {
   private provider: JsonRpcProvider;
@@ -68,74 +50,39 @@ export class ChainlinkPriceFeed {
     this.provider = provider;
   }
 
-  /**
-   * @notice Fetch the latest USD price for a Chainlink feed address.
-   * @param feedAddress  Chainlink AggregatorV3 contract address.
-   * @param fallback     Value to return if the feed is unreachable (default: 0).
-   * @returns            Price in USD as a float.
-   */
   async getPrice(feedAddress: string, fallback = 0): Promise<number> {
-    // Check cache first
     const cached = this.cache.get(feedAddress);
-    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
-      return cached.price;
-    }
+    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached.price;
 
     try {
       const agg = new Contract(feedAddress, AGGREGATOR_ABI, this.provider);
-
       const [decimalsRaw, [, answer, , updatedAt]] = await Promise.all([
         agg.decimals(),
         agg.latestRoundData(),
       ]);
-
-      const decimals  = Number(decimalsRaw);
-      const age       = Math.floor(Date.now() / 1000) - Number(updatedAt);
-
+      const age = Math.floor(Date.now() / 1000) - Number(updatedAt);
       if (age > MAX_FEED_AGE_S) {
-        logWarn("ChainlinkPriceFeed: stale data — using fallback", {
-          feedAddress, ageSecs: age, maxAge: MAX_FEED_AGE_S,
-        });
+        logWarn("ChainlinkPriceFeed: stale data", { feedAddress, ageSecs: age });
         return fallback;
       }
-
-      const price = Number(answer) / 10 ** decimals;
-
+      const price = Number(answer) / 10 ** Number(decimalsRaw);
       this.cache.set(feedAddress, { price, fetchedAt: Date.now() });
       return price;
-
     } catch (err) {
-      logError("ChainlinkPriceFeed: failed to fetch price", err, { feedAddress });
+      logError("ChainlinkPriceFeed: fetch failed", err, { feedAddress });
       return fallback;
     }
   }
 
-  /**
-   * @notice Convenience: get USD price for a token by its ERC-20 address.
-   * @param tokenAddress  ERC-20 token address (must be in TOKEN_TO_FEED map).
-   * @param fallback      Value returned if no feed is mapped or feed is unreachable.
-   */
   async getTokenPriceUsd(tokenAddress: string, fallback = 0): Promise<number> {
-    const feed = TOKEN_TO_FEED[tokenAddress.toLowerCase()] ??
-                 TOKEN_TO_FEED[tokenAddress];
-    if (!feed) {
-      logWarn("ChainlinkPriceFeed: no feed mapped for token", { tokenAddress });
-      return fallback;
-    }
+    const feed = TOKEN_TO_FEED[tokenAddress.toLowerCase()];
+    if (!feed) { logWarn("No feed for token", { tokenAddress }); return fallback; }
     return this.getPrice(feed, fallback);
   }
 
-  /**
-   * @notice Pre-warm the cache for all tokens in TOKEN_TO_FEED.
-   */
   async warmCache(): Promise<void> {
-    await Promise.allSettled(
-      Object.values(FEEDS).map((f) => this.getPrice(f))
-    );
+    await Promise.allSettled(Object.values(FEEDS).map((f) => this.getPrice(f)));
   }
 
-  /** Flush the entire cache (e.g. on a new block to force fresh reads). */
-  flushCache(): void {
-    this.cache.clear();
-  }
+  flushCache(): void { this.cache.clear(); }
 }
