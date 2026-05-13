@@ -50,7 +50,7 @@ export const ENV = {
 export const MIN_PROFIT_USD = 5.0;
 
 /** Maximum gas price (Gwei) — skip block if gas is above this */
-export const MAX_GAS_GWEI = 200;
+export const MAX_GAS_GWEI = 350;
 
 /** Maximum cumulative daily loss (USD) before the bot halts */
 export const MAX_DAILY_LOSS_USD = 100;

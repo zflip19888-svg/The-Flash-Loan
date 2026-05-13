@@ -2,26 +2,32 @@
  * @file index.ts
  * @notice Entry point for the Flash Loan Arbitrage Bot.
  *
- * Start:
- *   cd bot && npm run start
- *   # or in dev watch mode:
- *   cd bot && npm run dev
+ * Start modes:
+ *   npm run start              — live execution (requires PRIVATE_KEY + FLASH_LOAN_ADDRESS)
+ *   DRY_RUN=true npm run start — scan only, log opportunities, never send tx
+ *   npm run dev                — ts-node-dev watch mode (implies DRY_RUN unless set)
+ *
+ * Logs:
+ *   stdout      — structured JSON (piped to console or log aggregator)
+ *   logs/       — opportunities-YYYY-MM-DD.jsonl (one record per viable opportunity)
  */
 
-import { ArbitrageScanner } from "./scanner";
+import { ScanLoop } from "./loop";
 import { logInfo, logError } from "./logger";
 
 async function main() {
-  logInfo("=================================================");
-  logInfo("  Flash Loan Arbitrage Bot — Polygon");
-  logInfo("=================================================");
+  const dryRun = process.env.DRY_RUN === "true";
 
-  const scanner = new ArbitrageScanner();
+  logInfo("=============================================");
+  logInfo("  Flash Loan Arbitrage Bot — Polygon Mainnet");
+  logInfo(`  Mode: ${dryRun ? "DRY-RUN (scan only)" : "LIVE"}`);
+  logInfo("=============================================");
 
-  // Graceful shutdown
-  const shutdown = async (signal: string) => {
-    logInfo(`Received ${signal} — shutting down gracefully…`);
-    await scanner.stop();
+  const loop = new ScanLoop();
+
+  const shutdown = async (sig: string) => {
+    logInfo(`${sig} received — shutting down`);
+    await loop.stop();
     process.exit(0);
   };
 
@@ -29,15 +35,15 @@ async function main() {
   process.on("SIGTERM", () => shutdown("SIGTERM"));
 
   process.on("unhandledRejection", (reason) => {
-    logError("Unhandled promise rejection", reason instanceof Error ? reason : new Error(String(reason)));
+    logError("Unhandled rejection", reason instanceof Error ? reason : new Error(String(reason)));
   });
 
   process.on("uncaughtException", (err) => {
-    logError("Uncaught exception — shutting down", err);
+    logError("Uncaught exception", err);
     process.exit(1);
   });
 
-  await scanner.start();
+  await loop.start();
 }
 
 main().catch((err) => {

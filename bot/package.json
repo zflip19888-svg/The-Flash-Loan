@@ -7,10 +7,12 @@
   "scripts": {
     "start": "node dist/index.js",
     "build": "tsc",
-    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "dev": "DRY_RUN=true ts-node-dev --respawn --transpile-only src/index.ts",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "start:dry": "DRY_RUN=true node dist/index.js",
+    "dev:live": "ts-node-dev --respawn --transpile-only src/index.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
