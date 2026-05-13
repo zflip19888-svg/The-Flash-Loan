@@ -1,44 +1,50 @@
 /**
  * @file live-spread-scan.js
- * @notice Live spread scanner — queries real QuickSwap & SushiSwap reserves
- *         directly via public Polygon RPC. No wallet, no gas, read-only.
+ * @notice Live spread scanner with liquidity depth filtering.
+ *
+ * Skips any pair where either DEX has < MIN_RESERVE_USD liquidity on either
+ * side — prevents phantom spreads caused by shallow/empty pools.
  *
  * Run:
  *   node scripts/live-spread-scan.js
- *   RPC=https://your-node.com node scripts/live-spread-scan.js
+ *   POLYGON_RPC_URL=https://... node scripts/live-spread-scan.js
  */
 
+require("dotenv").config();
 const { ethers } = require("ethers");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Public Polygon RPCs (tried in order)
-const PUBLIC_RPCS = [
-  "https://polygon-rpc.com",
-  "https://rpc-mainnet.matic.network",
-  "https://rpc.ankr.com/polygon",
-  "https://1rpc.io/matic",
-];
+const RPC_URL = process.env.POLYGON_RPC_URL || "https://1rpc.io/matic";
 
-const RPC_URL = process.env.RPC || process.env.POLYGON_RPC_URL || null;
+/** Skip a DEX side if USD reserve depth is below this */
+const MIN_RESERVE_USD = 50_000;
+
+/** Skip a pair entirely if BOTH DEXes have reserve < this (no market) */
+const MIN_EITHER_RESERVE_USD = 10_000;
+
+/** Minimum spread % to bother estimating profit */
+const MIN_SPREAD_PCT = 0.05;
 
 const QUICKSWAP_ROUTER  = "0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff";
 const SUSHISWAP_ROUTER  = "0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506";
 const QUICKSWAP_FACTORY = "0x5757371414417b8C6CAad45bAeF941aBc7d3Ab32";
 const SUSHISWAP_FACTORY = "0xc35DADB65012eC5796536bD9864eD8773aBc74C4";
 const CL_MATIC_USD      = "0xAB594600376Ec9fD91F8e885dADF0CE036862dE0";
+const CL_ETH_USD        = "0xF9680D99D6C9589e2a93a78A04A279e509205945";
+const CL_BTC_USD        = "0xc907E116054Ad103354f2D350FD2514433D57F6f";
 
 const TOKENS = {
-  USDC:  { addr: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", decimals: 6,  symbol: "USDC"  },
-  WMATIC:{ addr: "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270", decimals: 18, symbol: "WMATIC"},
-  WETH:  { addr: "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619", decimals: 18, symbol: "WETH"  },
-  DAI:   { addr: "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063", decimals: 18, symbol: "DAI"   },
-  WBTC:  { addr: "0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6", decimals: 8,  symbol: "WBTC"  },
+  USDC:  { addr: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", decimals: 6,  symbol: "USDC",  usdPrice: 1.0 },
+  WMATIC:{ addr: "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270", decimals: 18, symbol: "WMATIC", usdPrice: null },
+  WETH:  { addr: "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619", decimals: 18, symbol: "WETH",  usdPrice: null },
+  DAI:   { addr: "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063", decimals: 18, symbol: "DAI",   usdPrice: 1.0 },
+  WBTC:  { addr: "0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6", decimals: 8,  symbol: "WBTC",  usdPrice: null },
 };
 
-const PAIRS = [
+const SCAN_PAIRS = [
   { from: TOKENS.USDC,   to: TOKENS.WMATIC, amount: 10_000 },
   { from: TOKENS.WMATIC, to: TOKENS.USDC,   amount: 20_000 },
   { from: TOKENS.USDC,   to: TOKENS.WETH,   amount: 10_000 },
@@ -55,16 +61,13 @@ const PAIRS = [
 const ROUTER_ABI = [
   "function getAmountsOut(uint256 amountIn, address[] calldata path) external view returns (uint256[] memory amounts)",
 ];
-
 const FACTORY_ABI = [
   "function getPair(address tokenA, address tokenB) external view returns (address pair)",
 ];
-
 const PAIR_ABI = [
   "function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)",
   "function token0() external view returns (address)",
 ];
-
 const CL_ABI = [
   "function latestRoundData() external view returns (uint80,int256,uint256,uint256,uint80)",
   "function decimals() external view returns (uint8)",
@@ -74,95 +77,66 @@ const CL_ABI = [
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function fmt(val, decimals, displayDecimals = 6) {
-  return parseFloat(ethers.formatUnits(val, decimals)).toFixed(displayDecimals);
-}
-
+function pad(str, len) { return String(str).padEnd(len); }
 function pct(a, b) {
-  // spread % of the larger price
   const diff = Math.abs(a - b);
-  const base = Math.max(a, b);
-  return base === 0 ? 0 : (diff / base) * 100;
+  return Math.max(a, b) === 0 ? 0 : (diff / Math.max(a, b)) * 100;
 }
 
-function pad(str, len) {
-  return String(str).padEnd(len, " ");
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// RPC connection — try multiple providers
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function connectProvider() {
-  const urls = RPC_URL ? [RPC_URL, ...PUBLIC_RPCS] : PUBLIC_RPCS;
-  for (const url of urls) {
-    try {
-      const p = new ethers.JsonRpcProvider(url);
-      const block = await Promise.race([
-        p.getBlockNumber(),
-        new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 5000)),
-      ]);
-      console.log(`✅ Connected: ${url}  (block #${block})\n`);
-      return p;
-    } catch {
-      console.log(`   ⚠️  ${url} — unreachable, trying next…`);
-    }
-  }
-  throw new Error("All RPC endpoints failed. Set RPC=https://... env var.");
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Price queries
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function getAmountOut(router, tokenIn, tokenOut, amountIn) {
+async function fetchChainlinkPrice(provider, feed) {
   try {
-    const amounts = await router.getAmountsOut(amountIn, [tokenIn, tokenOut]);
-    return amounts[1];
-  } catch {
-    return null;
-  }
-}
-
-async function getReservePrices(factory, tokenIn, tokenOut, amountIn, decIn, decOut) {
-  try {
-    const pairAddr = await factory.getPair(tokenIn, tokenOut);
-    if (!pairAddr || pairAddr === ethers.ZeroAddress) return null;
-
-    const pairContract = new ethers.Contract(pairAddr, PAIR_ABI, factory.runner);
-    const [r0, r1] = await pairContract.getReserves();
-    const t0 = await pairContract.token0();
-
-    let resIn, resOut;
-    if (t0.toLowerCase() === tokenIn.toLowerCase()) {
-      resIn = r0; resOut = r1;
-    } else {
-      resIn = r1; resOut = r0;
-    }
-
-    if (resIn === 0n || resOut === 0n) return null;
-
-    // Constant product: amountOut = (amountIn * resOut) / (resIn + amountIn)
-    const amtOut = (amountIn * resOut) / (resIn + amountIn);
-    return amtOut;
-  } catch {
-    return null;
-  }
-}
-
-async function getMaticUsd(provider) {
-  try {
-    const feed = new ethers.Contract(CL_MATIC_USD, CL_ABI, provider);
+    const c = new ethers.Contract(feed, CL_ABI, provider);
     const [[, answer, , updatedAt], decimals] = await Promise.all([
-      feed.latestRoundData(),
-      feed.decimals(),
+      c.latestRoundData(), c.decimals(),
     ]);
     const age = Math.floor(Date.now() / 1000) - Number(updatedAt);
     if (age > 3600) return null;
     return Number(answer) / 10 ** Number(decimals);
+  } catch { return null; }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Core: fetch pair reserves + compute USD depth
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function getPoolDepth(factory, tokenIn, tokenOut, decIn, decOut, priceIn, priceOut) {
+  try {
+    const pairAddr = await factory.getPair(tokenIn, tokenOut);
+    if (!pairAddr || pairAddr === ethers.ZeroAddress) return { depthUsd: 0, reserveIn: 0n, reserveOut: 0n };
+
+    const pair = new ethers.Contract(pairAddr, PAIR_ABI, factory.runner);
+    const [[r0, r1], t0] = await Promise.all([pair.getReserves(), pair.token0()]);
+
+    const isToken0 = t0.toLowerCase() === tokenIn.toLowerCase();
+    const resIn  = isToken0 ? r0 : r1;
+    const resOut = isToken0 ? r1 : r0;
+
+    // USD value of tokenIn side
+    const resInF   = parseFloat(ethers.formatUnits(resIn,  decIn));
+    const resOutF  = parseFloat(ethers.formatUnits(resOut, decOut));
+    const depthUsd = priceIn  ? resInF  * priceIn
+                   : priceOut ? resOutF * priceOut
+                   : 0;
+
+    return { depthUsd, reserveIn: resIn, reserveOut: resOut, resInF, resOutF };
   } catch {
-    return null;
+    return { depthUsd: 0, reserveIn: 0n, reserveOut: 0n };
   }
+}
+
+// Quote using constant-product formula against on-chain reserves (no slippage model needed)
+function cpQuote(amountIn, reserveIn, reserveOut) {
+  if (reserveIn === 0n || reserveOut === 0n) return null;
+  const num = amountIn * reserveOut;
+  const den = reserveIn + amountIn;
+  return num / den;
+}
+
+async function getRouterQuote(router, tokenIn, tokenOut, amountIn) {
+  try {
+    const out = await router.getAmountsOut(amountIn, [tokenIn, tokenOut]);
+    return out[1];
+  } catch { return null; }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -170,178 +144,229 @@ async function getMaticUsd(provider) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log("═══════════════════════════════════════════════════════════════");
-  console.log("  LIVE SPREAD SCANNER — Polygon Mainnet");
-  console.log(`  ${new Date().toUTCString()}`);
-  console.log("═══════════════════════════════════════════════════════════════\n");
+  const provider = new ethers.JsonRpcProvider(RPC_URL);
 
-  const provider = await connectProvider();
+  // Verify connection
+  const [blockNumber, feeData] = await Promise.all([
+    provider.getBlockNumber(),
+    provider.getFeeData(),
+  ]);
 
+  // Fetch live prices
+  const [maticUsd, ethUsd, btcUsd] = await Promise.all([
+    fetchChainlinkPrice(provider, CL_MATIC_USD),
+    fetchChainlinkPrice(provider, CL_ETH_USD),
+    fetchChainlinkPrice(provider, CL_BTC_USD),
+  ]);
+
+  // Patch token prices
+  TOKENS.WMATIC.usdPrice = maticUsd;
+  TOKENS.WETH.usdPrice   = ethUsd;
+  TOKENS.WBTC.usdPrice   = btcUsd;
+
+  const gasPriceGwei = feeData.gasPrice
+    ? parseFloat(ethers.formatUnits(feeData.gasPrice, "gwei"))
+    : 100;
+  const GAS_UNITS    = 750_000;
+  const gasCostMatic = feeData.gasPrice
+    ? parseFloat(ethers.formatUnits(feeData.gasPrice * BigInt(GAS_UNITS), 18))
+    : null;
+  const gasCostUsd   = gasCostMatic && maticUsd ? gasCostMatic * maticUsd : null;
+
+  // Contracts
   const qsRouter  = new ethers.Contract(QUICKSWAP_ROUTER,  ROUTER_ABI,  provider);
   const ssRouter  = new ethers.Contract(SUSHISWAP_ROUTER,  ROUTER_ABI,  provider);
   const qsFactory = new ethers.Contract(QUICKSWAP_FACTORY, FACTORY_ABI, provider);
   const ssFactory = new ethers.Contract(SUSHISWAP_FACTORY, FACTORY_ABI, provider);
 
-  const maticUsd = await getMaticUsd(provider);
-  if (maticUsd) {
-    console.log(`📡 Chainlink MATIC/USD: $${maticUsd.toFixed(4)}`);
-  } else {
-    console.log("📡 Chainlink MATIC/USD: unavailable");
-  }
+  // ── Print header ────────────────────────────────────────────────────────────
+  console.log("\n" + "═".repeat(120));
+  console.log("  LIVE SPREAD SCANNER  —  Polygon Mainnet");
+  console.log(`  Block: #${blockNumber}   |   ${new Date().toUTCString()}`);
+  console.log("═".repeat(120));
+  console.log(`  MATIC $${maticUsd?.toFixed(4) ?? "?"}`+
+              `   ETH $${ethUsd?.toFixed(0) ?? "?"}`+
+              `   BTC $${btcUsd?.toFixed(0) ?? "?"}`+
+              `   Gas ${gasPriceGwei.toFixed(1)} Gwei`+
+              `   Est. tx cost ${gasCostUsd ? "$"+gasCostUsd.toFixed(3) : "?"}`);
+  console.log(`  Liquidity filter: skip if depth < $${MIN_RESERVE_USD.toLocaleString()} on either DEX side`);
+  console.log("─".repeat(120));
 
-  const gasPrice  = await provider.getFeeData();
-  const gasPriceGwei = gasPrice.gasPrice
-    ? parseFloat(ethers.formatUnits(gasPrice.gasPrice, "gwei")).toFixed(1)
-    : "?";
-  console.log(`⛽ Gas price: ${gasPriceGwei} Gwei`);
-  console.log();
-
-  // Estimate gas cost of one flash loan execution
-  const GAS_UNITS = 750_000;
-  const gasCostMatic = gasPrice.gasPrice
-    ? parseFloat(ethers.formatUnits(gasPrice.gasPrice * BigInt(GAS_UNITS), 18))
-    : null;
-  const gasCostUsd = gasCostMatic && maticUsd ? gasCostMatic * maticUsd : null;
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Header
-  // ─────────────────────────────────────────────────────────────────────────
-  console.log(
-    pad("Pair", 18) +
-    pad("Amount In", 14) +
-    pad("QuickSwap Out", 18) +
-    pad("SushiSwap Out", 18) +
-    pad("Spread %", 12) +
-    pad("Spread USD", 14) +
-    "Signal"
-  );
-  console.log("─".repeat(110));
+  const COL = [20, 14, 12, 14, 14, 12, 11, 10, 13];
+  const HDR = ["Pair","Amount In","QS Depth","QS Out","SS Out","Spread %","Spread $","Net $","Signal"];
+  console.log(HDR.map((h,i) => pad(h, COL[i])).join(""));
+  console.log("─".repeat(120));
 
   const results = [];
 
-  for (const pair of PAIRS) {
+  for (const pair of SCAN_PAIRS) {
     const { from, to, amount } = pair;
-    const amountIn = ethers.parseUnits(String(amount), from.decimals);
+    const amountIn  = ethers.parseUnits(String(amount), from.decimals);
+    const pairLabel = `${from.symbol}→${to.symbol}`;
+    const priceIn   = from.usdPrice;
+    const priceOut  = to.usdPrice;
 
-    const [qsOut, ssOut] = await Promise.all([
-      getAmountOut(qsRouter, from.addr, to.addr, amountIn),
-      getAmountOut(ssRouter, from.addr, to.addr, amountIn),
+    // ── 1. Fetch reserves + depth for both DEXes in parallel ──────────────────
+    const [qsDepth, ssDepth] = await Promise.all([
+      getPoolDepth(qsFactory, from.addr, to.addr, from.decimals, to.decimals, priceIn, priceOut),
+      getPoolDepth(ssFactory, from.addr, to.addr, from.decimals, to.decimals, priceIn, priceOut),
     ]);
 
-    // Fallback to reserve-based estimate if router failed
-    const qsAmt = qsOut ?? await getReservePrices(qsFactory, from.addr, to.addr, amountIn, from.decimals, to.decimals);
-    const ssAmt = ssOut ?? await getReservePrices(ssFactory, from.addr, to.addr, amountIn, from.decimals, to.decimals);
+    const qsDepthUsd = qsDepth.depthUsd;
+    const ssDepthUsd = ssDepth.depthUsd;
+    const maxDepth   = Math.max(qsDepthUsd, ssDepthUsd);
 
-    const pairName = `${from.symbol}→${to.symbol}`;
-
-    if (!qsAmt && !ssAmt) {
-      console.log(pad(pairName, 18) + pad(`${amount} ${from.symbol}`, 14) + "No liquidity on either DEX");
+    // ── 2. Depth filter ────────────────────────────────────────────────────────
+    if (maxDepth < MIN_EITHER_RESERVE_USD) {
+      console.log(
+        pad(pairLabel, COL[0]) +
+        pad(`${amount} ${from.symbol}`, COL[1]) +
+        pad("—", COL[2]) + pad("—", COL[3]) + pad("—", COL[4]) +
+        pad("—", COL[5]) + pad("—", COL[6]) + pad("—", COL[7]) +
+        "⚫ NO LIQUIDITY"
+      );
+      results.push({ pair: pairLabel, signal: "NO_LIQUIDITY", qsDepthUsd, ssDepthUsd });
       continue;
     }
 
-    const qsF = qsAmt ? parseFloat(ethers.formatUnits(qsAmt, to.decimals)) : null;
-    const ssF = ssAmt ? parseFloat(ethers.formatUnits(ssAmt, to.decimals)) : null;
+    // ── 3. Get quotes ──────────────────────────────────────────────────────────
+    // Use router quote where depth is sufficient, else mark N/A
+    const [qsRouterOut, ssRouterOut] = await Promise.all([
+      qsDepthUsd >= MIN_RESERVE_USD ? getRouterQuote(qsRouter, from.addr, to.addr, amountIn) : Promise.resolve(null),
+      ssDepthUsd >= MIN_RESERVE_USD ? getRouterQuote(ssRouter, from.addr, to.addr, amountIn) : Promise.resolve(null),
+    ]);
 
-    const spreadPct = qsF && ssF ? pct(qsF, ssF) : null;
+    // Fallback to CP formula if router call failed but depth is present
+    const qsOut = qsRouterOut
+      ?? (qsDepth.reserveIn > 0n ? cpQuote(amountIn, qsDepth.reserveIn, qsDepth.reserveOut) : null);
+    const ssOut = ssRouterOut
+      ?? (ssDepth.reserveIn > 0n ? cpQuote(amountIn, ssDepth.reserveIn, ssDepth.reserveOut) : null);
 
-    // Estimate spread USD value
-    let spreadUsd = null;
-    if (qsF && ssF) {
-      const spreadUnits = Math.abs(qsF - ssF);
-      if (to.symbol === "USDC" || to.symbol === "DAI") {
-        spreadUsd = spreadUnits;
-      } else if (to.symbol === "WMATIC" && maticUsd) {
-        spreadUsd = spreadUnits * maticUsd;
-      } else if (to.symbol === "WETH" && maticUsd) {
-        // rough ETH price from MATIC price
-        spreadUsd = null; // ETH price not fetched separately yet
-      }
+    if (!qsOut && !ssOut) {
+      console.log(
+        pad(pairLabel, COL[0]) +
+        pad(`${amount} ${from.symbol}`, COL[1]) +
+        pad("—", COL[2]) + pad("—", COL[3]) + pad("—", COL[4]) +
+        pad("—", COL[5]) + pad("—", COL[6]) + pad("—", COL[7]) +
+        "⚫ QUOTE FAILED"
+      );
+      results.push({ pair: pairLabel, signal: "QUOTE_FAILED" });
+      continue;
     }
 
-    // Aave fee: 0.05% of loan
-    const aaveFeePct = 0.0005;
-    const loanValueUsd = from.symbol === "USDC" || from.symbol === "DAI"
-      ? amount
-      : from.symbol === "WMATIC" && maticUsd
-        ? amount * maticUsd
-        : null;
-    const aaveFeeUsd = loanValueUsd ? loanValueUsd * aaveFeePct : null;
+    const qsF = qsOut ? parseFloat(ethers.formatUnits(qsOut, to.decimals)) : null;
+    const ssF = ssOut ? parseFloat(ethers.formatUnits(ssOut, to.decimals)) : null;
 
-    const netProfit = spreadUsd !== null && gasCostUsd !== null && aaveFeeUsd !== null
+    // ── 4. Spread ──────────────────────────────────────────────────────────────
+    const spreadPct = (qsF && ssF) ? pct(qsF, ssF) : null;
+
+    if (spreadPct !== null && spreadPct < MIN_SPREAD_PCT) {
+      console.log(
+        pad(pairLabel, COL[0]) +
+        pad(`${amount} ${from.symbol}`, COL[1]) +
+        pad(`$${(qsDepthUsd/1000).toFixed(0)}K`, COL[2]) +
+        pad(qsF?.toFixed(4) ?? "—", COL[3]) +
+        pad(ssF?.toFixed(4) ?? "—", COL[4]) +
+        pad(spreadPct.toFixed(4)+"%", COL[5]) +
+        pad("—", COL[6]) + pad("—", COL[7]) +
+        "⚪ FLAT"
+      );
+      results.push({ pair: pairLabel, signal: "FLAT", spreadPct, qsDepthUsd, ssDepthUsd });
+      continue;
+    }
+
+    // ── 5. USD spread value ────────────────────────────────────────────────────
+    let spreadUsd = null;
+    if (qsF !== null && ssF !== null) {
+      const spreadUnits = Math.abs(qsF - ssF);
+      const outPrice    = priceOut;
+      if (outPrice) spreadUsd = spreadUnits * outPrice;
+    }
+
+    // ── 6. Net profit ──────────────────────────────────────────────────────────
+    const loanNotionalUsd = priceIn ? amount * priceIn : null;
+    const aaveFeeUsd      = loanNotionalUsd ? loanNotionalUsd * 0.0005 : null;
+    const netProfit       = (spreadUsd !== null && gasCostUsd !== null && aaveFeeUsd !== null)
       ? spreadUsd - gasCostUsd - aaveFeeUsd
       : null;
 
+    // ── 7. Depth-adjusted viability ────────────────────────────────────────────
+    // Even if spread looks good, flag if the thinner DEX has < MIN_RESERVE_USD
+    const depthWarning = (qsDepthUsd < MIN_RESERVE_USD || ssDepthUsd < MIN_RESERVE_USD)
+      ? " ⚠️ shallow" : "";
+
     // Signal
-    let signal = "—";
-    if (netProfit !== null) {
-      if (netProfit > 5) signal = "🟢 EXECUTE";
-      else if (netProfit > 0) signal = "🟡 MARGINAL";
-      else signal = "🔴 UNPROFITABLE";
-    } else if (spreadPct && spreadPct > 0.1) {
-      signal = "🟡 CHECK";
+    let signal;
+    if (depthWarning && netProfit !== null && netProfit > 5) {
+      signal = "🟡 VERIFY DEPTH";
+    } else if (netProfit !== null && netProfit > 5) {
+      signal = "🟢 EXECUTE";
+    } else if (netProfit !== null && netProfit > 0) {
+      signal = "🟡 MARGINAL";
+    } else if (netProfit !== null) {
+      signal = "🔴 UNPROFITABLE";
+    } else if (spreadPct && spreadPct > 1) {
+      signal = depthWarning ? "🟡 VERIFY DEPTH" : "🟡 CHECK";
+    } else {
+      signal = "—";
     }
 
-    const cheaperDex = qsF && ssF ? (qsF > ssF ? "QuickSwap" : "SushiSwap") : "—";
-    const biggerDex  = qsF && ssF ? (qsF > ssF ? "SushiSwap" : "QuickSwap") : "—";
+    const cheaperDex = qsF && ssF ? (qsF > ssF ? "QS" : "SS") : "—";
 
     results.push({
-      pair: pairName, amount, from: from.symbol, to: to.symbol,
-      qsOut: qsF, ssOut: ssF, spreadPct, spreadUsd, netProfit,
-      cheaperDex, biggerDex, signal,
+      pair: pairLabel, amount, signal, spreadPct, spreadUsd, netProfit,
+      qsDepthUsd, ssDepthUsd, cheaperDex, qsF, ssF,
     });
 
-    const qsStr  = qsF  !== null ? qsF.toFixed(to.decimals > 6 ? 4 : 4)  : "N/A";
-    const ssStr  = ssF  !== null ? ssF.toFixed(to.decimals > 6 ? 4 : 4)  : "N/A";
-    const spdStr = spreadPct !== null ? spreadPct.toFixed(4) + "%" : "N/A";
-    const usdStr = spreadUsd !== null ? "$" + spreadUsd.toFixed(2) : "N/A";
-
     console.log(
-      pad(pairName, 18) +
-      pad(`${amount} ${from.symbol}`, 14) +
-      pad(qsStr, 18) +
-      pad(ssStr, 18) +
-      pad(spdStr, 12) +
-      pad(usdStr, 14) +
-      signal
+      pad(pairLabel,                                                          COL[0]) +
+      pad(`${amount} ${from.symbol}`,                                        COL[1]) +
+      pad(`$${(qsDepthUsd/1000).toFixed(0)}K / $${(ssDepthUsd/1000).toFixed(0)}K`, COL[2]) +
+      pad(qsF !== null ? qsF.toFixed(4) : "N/A",                            COL[3]) +
+      pad(ssF !== null ? ssF.toFixed(4) : "N/A",                            COL[4]) +
+      pad(spreadPct !== null ? spreadPct.toFixed(4)+"%" : "N/A",            COL[5]) +
+      pad(spreadUsd !== null ? "$"+spreadUsd.toFixed(2) : "N/A",            COL[6]) +
+      pad(netProfit !== null ? "$"+netProfit.toFixed(2) : "N/A",            COL[7]) +
+      signal + depthWarning
     );
   }
 
-  console.log("─".repeat(110));
+  // ── Summary ─────────────────────────────────────────────────────────────────
+  console.log("═".repeat(120));
+  console.log("\n  SUMMARY");
+  console.log("─".repeat(60));
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Summary
-  // ─────────────────────────────────────────────────────────────────────────
-  console.log();
-  console.log("═══════════════════════════════════════════════════════════════");
-  console.log("  SUMMARY");
-  console.log("═══════════════════════════════════════════════════════════════");
-  console.log(`  Gas price:        ${gasPriceGwei} Gwei`);
-  if (gasCostUsd) console.log(`  Est. tx cost:     $${gasCostUsd.toFixed(3)} (${GAS_UNITS.toLocaleString()} gas units)`);
-  console.log();
+  const executable  = results.filter(r => r.signal === "🟢 EXECUTE");
+  const verifyDepth = results.filter(r => r.signal === "🟡 VERIFY DEPTH");
+  const marginal    = results.filter(r => r.signal === "🟡 MARGINAL");
 
-  const executable = results.filter(r => r.netProfit !== null && r.netProfit > 5);
-  const marginal   = results.filter(r => r.netProfit !== null && r.netProfit > 0 && r.netProfit <= 5);
-
-  if (executable.length > 0) {
-    console.log(`  🟢 Executable opportunities (net profit > $5):`);
+  if (executable.length) {
+    console.log("  🟢 Execute:");
     for (const r of executable) {
-      console.log(`     ${r.pair}  |  ${r.cheaperDex} cheaper  |  spread $${r.spreadUsd?.toFixed(2)}  |  net ~$${r.netProfit?.toFixed(2)}`);
+      console.log(`     ${pad(r.pair,18)} cheaper: ${r.cheaperDex}   spread $${r.spreadUsd?.toFixed(2)}   net ~$${r.netProfit?.toFixed(2)}   QS depth $${(r.qsDepthUsd/1000).toFixed(0)}K / SS $${(r.ssDepthUsd/1000).toFixed(0)}K`);
     }
-  } else {
-    console.log(`  🔴 No executable opportunities at current spreads / gas.`);
   }
-
-  if (marginal.length > 0) {
-    console.log(`\n  🟡 Marginal (profitable but < $5):`);
+  if (verifyDepth.length) {
+    console.log("  🟡 Verify depth before executing:");
+    for (const r of verifyDepth) {
+      console.log(`     ${pad(r.pair,18)} spread $${r.spreadUsd?.toFixed(2)}   QS $${(r.qsDepthUsd/1000).toFixed(0)}K / SS $${(r.ssDepthUsd/1000).toFixed(0)}K`);
+    }
+  }
+  if (marginal.length) {
+    console.log("  🟡 Marginal:");
     for (const r of marginal) {
-      console.log(`     ${r.pair}  |  spread $${r.spreadUsd?.toFixed(2)}  |  net ~$${r.netProfit?.toFixed(2)}`);
+      console.log(`     ${pad(r.pair,18)} net ~$${r.netProfit?.toFixed(2)}`);
     }
   }
+  if (!executable.length && !verifyDepth.length && !marginal.length) {
+    console.log("  🔴 No profitable opportunities at current spreads and gas.");
+  }
 
-  console.log();
-  console.log(`  Pairs scanned:    ${results.length}`);
-  console.log(`  Timestamp:        ${new Date().toISOString()}`);
-  console.log("═══════════════════════════════════════════════════════════════");
+  console.log(`\n  Pairs scanned: ${results.length}`);
+  console.log(`  Depth filter:  skip < $${MIN_RESERVE_USD.toLocaleString()} per DEX side`);
+  console.log(`  Gas:           ${gasPriceGwei.toFixed(1)} Gwei  |  est. tx $${gasCostUsd?.toFixed(3) ?? "?"}`);
+  console.log(`  Timestamp:     ${new Date().toISOString()}`);
+  console.log("═".repeat(120) + "\n");
 }
 
 main().catch(err => {
