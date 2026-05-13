@@ -1,105 +1,76 @@
 /**
  * @file logger.ts
- * @notice Winston logger with daily rotating log files.
- *         Outputs to:
- *           bot/logs/combined-YYYY-MM-DD.log  — all levels
- *           bot/logs/error-YYYY-MM-DD.log     — error level only
- *           console                           — colourised during development
+ * @notice Structured JSON logger with level filtering.
+ *
+ * Log levels (ascending severity): debug < info < warn < error
+ * Set LOG_LEVEL in .env to control verbosity (default: info).
  */
 
-import winston from "winston";
-import DailyRotateFile from "winston-daily-rotate-file";
-import path from "path";
+type LogLevel = "debug" | "info" | "warn" | "error";
 
-const LOG_DIR = path.resolve(__dirname, "..", "logs");
+const LEVELS: Record<LogLevel, number> = {
+  debug: 0,
+  info:  1,
+  warn:  2,
+  error: 3,
+};
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Custom log format
-// ─────────────────────────────────────────────────────────────────────────────
-
-const logFormat = winston.format.combine(
-  winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss.SSS" }),
-  winston.format.errors({ stack: true }),
-  winston.format.printf(({ timestamp, level, message, stack, ...meta }) => {
-    const metaStr = Object.keys(meta).length > 0 ? ` ${JSON.stringify(meta)}` : "";
-    return stack
-      ? `[${timestamp}] ${level.toUpperCase()}: ${message}\n${stack}${metaStr}`
-      : `[${timestamp}] ${level.toUpperCase()}: ${message}${metaStr}`;
-  })
-);
-
-const consoleFormat = winston.format.combine(
-  winston.format.colorize({ all: true }),
-  winston.format.timestamp({ format: "HH:mm:ss.SSS" }),
-  winston.format.printf(({ timestamp, level, message, ...meta }) => {
-    const metaStr = Object.keys(meta).length > 0 ? ` ${JSON.stringify(meta)}` : "";
-    return `[${timestamp}] ${level}: ${message}${metaStr}`;
-  })
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Transports
-// ─────────────────────────────────────────────────────────────────────────────
-
-const combinedTransport = new DailyRotateFile({
-  dirname:       LOG_DIR,
-  filename:      "combined-%DATE%.log",
-  datePattern:   "YYYY-MM-DD",
-  maxFiles:      "30d",   // keep 30 days of combined logs
-  maxSize:       "50m",
-  level:         "info",
-  format:        logFormat,
-  zippedArchive: true,
-});
-
-const errorTransport = new DailyRotateFile({
-  dirname:       LOG_DIR,
-  filename:      "error-%DATE%.log",
-  datePattern:   "YYYY-MM-DD",
-  maxFiles:      "90d",   // keep error logs longer
-  maxSize:       "20m",
-  level:         "error",
-  format:        logFormat,
-  zippedArchive: true,
-});
-
-const consoleTransport = new winston.transports.Console({
-  level:  process.env.LOG_LEVEL ?? "info",
-  format: consoleFormat,
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Logger instance
-// ─────────────────────────────────────────────────────────────────────────────
-
-const logger = winston.createLogger({
-  level:       process.env.LOG_LEVEL ?? "info",
-  transports:  [combinedTransport, errorTransport, consoleTransport],
-  exitOnError: false,
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Convenience helpers (typed wrappers)
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function logInfo(message: string, meta?: Record<string, unknown>): void {
-  logger.info(message, meta);
+function currentLevel(): LogLevel {
+  const env = (process.env.LOG_LEVEL ?? "info").toLowerCase() as LogLevel;
+  return LEVELS[env] !== undefined ? env : "info";
 }
 
-export function logWarn(message: string, meta?: Record<string, unknown>): void {
-  logger.warn(message, meta);
+function shouldLog(level: LogLevel): boolean {
+  return LEVELS[level] >= LEVELS[currentLevel()];
 }
 
-export function logError(message: string, error?: unknown, meta?: Record<string, unknown>): void {
-  if (error instanceof Error) {
-    logger.error(message, { ...meta, error: error.message, stack: error.stack });
+function log(level: LogLevel, message: string, meta?: unknown, extra?: unknown): void {
+  if (!shouldLog(level)) return;
+
+  const entry: Record<string, unknown> = {
+    ts:      new Date().toISOString(),
+    level,
+    message,
+  };
+
+  if (meta !== undefined && meta !== null) {
+    if (meta instanceof Error) {
+      entry.error = { message: meta.message, stack: meta.stack };
+    } else if (typeof meta === "object") {
+      Object.assign(entry, meta);
+    } else {
+      entry.meta = meta;
+    }
+  }
+
+  if (extra !== undefined) {
+    if (typeof extra === "object" && extra !== null) {
+      Object.assign(entry, extra);
+    } else {
+      entry.extra = extra;
+    }
+  }
+
+  const line = JSON.stringify(entry);
+  if (level === "error") {
+    process.stderr.write(line + "\n");
   } else {
-    logger.error(message, { ...meta, error });
+    process.stdout.write(line + "\n");
   }
 }
 
-export function logDebug(message: string, meta?: Record<string, unknown>): void {
-  logger.debug(message, meta);
+export function logDebug(message: string, meta?: unknown): void {
+  log("debug", message, meta);
 }
 
-export default logger;
+export function logInfo(message: string, meta?: unknown): void {
+  log("info", message, meta);
+}
+
+export function logWarn(message: string, meta?: unknown): void {
+  log("warn", message, meta);
+}
+
+export function logError(message: string, err?: unknown, meta?: unknown): void {
+  log("error", message, err instanceof Error ? err : undefined, meta);
+}

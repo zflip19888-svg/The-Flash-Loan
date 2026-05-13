@@ -2,30 +2,23 @@
  * @file index.ts
  * @notice Entry point for the Flash Loan Arbitrage Bot.
  *
- * Starts the ArbitrageScanner and registers process signal handlers for
- * graceful shutdown.
- *
- * Usage:
- *   npm start         → runs compiled JS
- *   npm run dev       → ts-node-dev hot-reload
+ * Start:
+ *   cd bot && npm run start
+ *   # or in dev watch mode:
+ *   cd bot && npm run dev
  */
 
 import { ArbitrageScanner } from "./scanner";
 import { logInfo, logError } from "./logger";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Bootstrap
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function main(): Promise<void> {
-  logInfo("═══════════════════════════════════════════");
+async function main() {
+  logInfo("=================================================");
   logInfo("  Flash Loan Arbitrage Bot — Polygon");
-  logInfo("  Aave v3 | QuickSwap | SushiSwap");
-  logInfo("═══════════════════════════════════════════");
+  logInfo("=================================================");
 
   const scanner = new ArbitrageScanner();
 
-  // ── Graceful shutdown ──────────────────────────────────────────────────────
+  // Graceful shutdown
   const shutdown = async (signal: string) => {
     logInfo(`Received ${signal} — shutting down gracefully…`);
     await scanner.stop();
@@ -35,17 +28,15 @@ async function main(): Promise<void> {
   process.on("SIGINT",  () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
 
-  // ── Unhandled promise rejections ───────────────────────────────────────────
   process.on("unhandledRejection", (reason) => {
-    logError("Unhandled promise rejection", reason as Error);
+    logError("Unhandled promise rejection", reason instanceof Error ? reason : new Error(String(reason)));
   });
 
   process.on("uncaughtException", (err) => {
-    logError("Uncaught exception", err);
+    logError("Uncaught exception — shutting down", err);
     process.exit(1);
   });
 
-  // ── Start ──────────────────────────────────────────────────────────────────
   await scanner.start();
 }
 
