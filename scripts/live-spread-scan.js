@@ -20,7 +20,7 @@ const { ethers } = require("ethers");
 const RPC_URL = process.env.POLYGON_RPC_URL || "https://1rpc.io/matic";
 
 /** Skip a DEX side if USD reserve depth is below this */
-const MIN_RESERVE_USD = 50_000;
+const MIN_RESERVE_USD = 40_000;
 
 /** Skip a pair entirely if BOTH DEXes have reserve < this (no market) */
 const MIN_EITHER_RESERVE_USD = 10_000;
