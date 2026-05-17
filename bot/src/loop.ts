@@ -8,7 +8,7 @@
  *   TIER 2 (DEX-direct): queries QuickSwap + SushiSwap router
  *                     getAmountsOut() directly — works with no deployed contract
  *
- * The same depth filter ($50K minimum per DEX side) guards both tiers.
+ * The same depth filter ($40K minimum per DEX side) guards both tiers.
  * Every viable opportunity is written to logs/opportunities-YYYY-MM-DD.jsonl.
  * Execution is gated behind DRY_RUN + PRIVATE_KEY + FLASH_LOAN_ADDRESS.
  */
