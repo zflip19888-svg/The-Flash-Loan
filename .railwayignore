@@ -1,0 +1,13 @@
+# Don't ship test/dev files to Railway build context
+test/
+scripts/
+artifacts/
+cache/
+logs/
+coverage/
+.env
+.env.*
+node_modules/
+bot/node_modules/
+*.dbg.json
+output/addresses-mumbai.json

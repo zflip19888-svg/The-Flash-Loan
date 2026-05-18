@@ -1,0 +1,22 @@
+[build]
+  builder          = "DOCKERFILE"
+  dockerfilePath   = "Dockerfile"
+
+[deploy]
+  # Restart automatically on crash — keeps the scanner alive 24/7
+  restartPolicyType            = "ON_FAILURE"
+  restartPolicyMaxRetries      = 10
+
+  # Give the process time to initialize RPC connections on first boot
+  healthcheckPath              = ""
+  startCommand                 = "node dist/index.js"
+
+  # Railway will inject env vars — no .env file needed on the server
+  # Set these in Railway dashboard → Variables tab:
+  #   POLYGON_RPC_URL          (required)
+  #   POLYGON_WS_URL           (optional — enables WebSocket block subscription)
+  #   PRIVATE_KEY              (optional — only for live execution)
+  #   FLASH_LOAN_ADDRESS       (optional — only for live execution)
+  #   PRICE_ORACLE_ADDRESS     (optional — only for live execution)
+  #   DRY_RUN                  set to "true" for scan-only mode
+  #   LOG_LEVEL                "info" or "debug"

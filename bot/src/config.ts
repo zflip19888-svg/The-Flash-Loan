@@ -11,10 +11,9 @@
  *   npm run start                  — live execution (requires full .env)
  */
 
-import { config } from "dotenv";
-import * as path  from "path";
 
-config({ path: path.resolve(__dirname, "../../.env") });
+// Load .env locally if present — Railway injects vars directly so this is a no-op in production
+try { require("dotenv").config({ path: require("path").resolve(__dirname, "../../.env") }); } catch (_) {}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
