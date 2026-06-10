@@ -17,12 +17,19 @@ export interface OpportunityRecord {
   pair:          string;
   qsDepthUsd:    number;
   ssDepthUsd:    number;
+  spreadPct?:    number;
   spreadUsd:     number;
+  netUsd?:       number;   // alias for netProfitUsd (used by dashboard + anomaly scripts)
   gasCostUsd:    number;
   aaveFeeUsd:    number;
   netProfitUsd:  number;
+  gasGwei?:      number;
+  signal?:       "EXECUTE" | "VERIFY_DEPTH" | "MARGINAL";
+  buyDex?:       string;   // which DEX to buy on (cheaper)
+  sellDex?:      string;   // which DEX to sell on (expensive)
   cheaperDex:    string;
   executed:      boolean;
+  note?:         string;   // e.g. "SushiSwap dead pool", "SushiSwap shallow"
   txHash?:       string;
   txStatus?:     "success" | "reverted" | "pending";
   error?:        string;

@@ -8,7 +8,7 @@
  *   TIER 2 (DEX-direct): queries QuickSwap + SushiSwap router
  *                     getAmountsOut() directly — works with no deployed contract
  *
- * The same depth filter ($40K minimum per DEX side) guards both tiers.
+ * The same depth filter ($50K minimum per DEX side) guards both tiers.
  * Every viable opportunity is written to logs/opportunities-YYYY-MM-DD.jsonl.
  * Execution is gated behind DRY_RUN + PRIVATE_KEY + FLASH_LOAN_ADDRESS.
  */
@@ -43,7 +43,7 @@ import { writeOpportunity, readTodayLog, OpportunityRecord } from "./opportunity
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const MIN_POOL_DEPTH_USD     = 40_000;
+const MIN_POOL_DEPTH_USD     = 50_000;
 const STATUS_INTERVAL_BLOCKS = 50;
 const DRY_RUN                = process.env.DRY_RUN === "true";
 
@@ -271,18 +271,29 @@ export class ScanLoop {
 
     for (const r of viable) {
       this.sessionOpps++;
+      const _signal = r.viable ? "EXECUTE" : "VERIFY_DEPTH";
+      const _note   = r.ssDepthUsd < MIN_POOL_DEPTH_USD
+                        ? (r.ssDepthUsd === 0 ? "SushiSwap dead pool" : "SushiSwap shallow")
+                        : r.qsDepthUsd < MIN_POOL_DEPTH_USD ? "QuickSwap shallow" : undefined;
       const record: OpportunityRecord = {
         ts:           new Date().toISOString(),
         block:        blockNumber,
         pair:         r.pair.name,
         qsDepthUsd:   r.qsDepthUsd,
         ssDepthUsd:   r.ssDepthUsd,
+        spreadPct:    r.spreadUsd / (r.qsDepthUsd || 1) * 100,
         spreadUsd:    r.spreadUsd,
+        netUsd:       r.netProfitUsd,
         gasCostUsd:   r.gasCostUsd,
         aaveFeeUsd:   r.aaveFeeUsd,
         netProfitUsd: r.netProfitUsd,
+        gasGwei:      Number((gasPrice / 1_000_000_000n)),
+        signal:       _signal,
+        buyDex:       dexLabel(r.cheaperDex),
+        sellDex:      dexLabel(r.expensiveDex),
         cheaperDex:   dexLabel(r.cheaperDex),
         executed:     false,
+        ..._note ? { note: _note } : {},
       };
 
       logInfo("Opportunity", {
@@ -345,8 +356,9 @@ export class ScanLoop {
       ]);
 
       if (Math.min(qsDep, ssDep) < MIN_POOL_DEPTH_USD) {
-        logDebug(`Depth skip — ${pair.name}`, {
-          qs: qsDep.toFixed(0), ss: ssDep.toFixed(0),
+        const _note = ssDep === 0 ? "SushiSwap dead pool" : "shallow pool";
+        logDebug(`Depth skip — ${pair.name} (${_note})`, {
+          qs: qsDep.toFixed(0), ss: ssDep.toFixed(0), required: MIN_POOL_DEPTH_USD,
         });
         return null;
       }
