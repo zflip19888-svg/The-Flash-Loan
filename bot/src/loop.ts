@@ -43,7 +43,7 @@ import { writeOpportunity, readTodayLog, OpportunityRecord } from "./opportunity
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const MIN_POOL_DEPTH_USD     = 40_000;
+const MIN_POOL_DEPTH_USD     = 25_000;
 const STATUS_INTERVAL_BLOCKS = 50;
 const DRY_RUN                = process.env.DRY_RUN === "true";
 
