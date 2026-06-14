@@ -51,7 +51,6 @@ const SCAN_PAIRS = [
   { from: TOKENS.WETH,   to: TOKENS.USDC,   amount: 5      },
   { from: TOKENS.DAI,    to: TOKENS.USDC,   amount: 10_000 },
   { from: TOKENS.USDC,   to: TOKENS.DAI,    amount: 10_000 },
-  { from: TOKENS.WBTC,   to: TOKENS.USDC,   amount: 0.2    },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -162,7 +161,6 @@ async function main() {
   // Patch token prices
   TOKENS.WMATIC.usdPrice = maticUsd;
   TOKENS.WETH.usdPrice   = ethUsd;
-  TOKENS.WBTC.usdPrice   = btcUsd;
 
   const gasPriceGwei = feeData.gasPrice
     ? parseFloat(ethers.formatUnits(feeData.gasPrice, "gwei"))
