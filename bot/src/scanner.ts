@@ -7,7 +7,7 @@
  *   2. Check gas vs MAX_GAS_GWEI guard
  *   3. For each token pair:
  *      a. Fetch DEX pool depth on both QuickSwap + SushiSwap
- *      b. Skip pair if EITHER DEX side has < MIN_POOL_DEPTH_USD ($25K) liquidity
+ *      b. Skip pair if EITHER DEX side has < MIN_POOL_DEPTH_USD ($15K) liquidity
  *      c. Query on-chain spread via PriceOraclePolygon
  *      d. Estimate net profit (spread − gas − Aave fee)
  *      e. Execute if profit > MIN_PROFIT_USD
@@ -45,7 +45,7 @@ import { ChainlinkPriceFeed, TOKEN_TO_FEED, FEEDS } from "./price-feed";
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Minimum USD liquidity required on EACH DEX side for a pair to be scannable */
-const MIN_POOL_DEPTH_USD = 25_000;
+const MIN_POOL_DEPTH_USD = 15_000;
 
 const QUICKSWAP_FACTORY = "0x5757371414417b8C6CAad45bAeF941aBc7d3Ab32";
 const SUSHISWAP_FACTORY = "0xc35DADB65012eC5796536bD9864eD8773aBc74C4";
