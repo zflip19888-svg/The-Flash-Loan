@@ -49,7 +49,7 @@ export const ENV = {
 // Risk parameters
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const MIN_PROFIT_USD      = 5.0;
+export const MIN_PROFIT_USD      = 1.0;
 export const MAX_GAS_GWEI        = 350;
 export const MAX_DAILY_LOSS_USD  = 100;
 export const ESTIMATED_GAS_UNITS = 750_000;

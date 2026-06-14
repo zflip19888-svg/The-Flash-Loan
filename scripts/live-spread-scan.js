@@ -26,7 +26,7 @@ const MIN_RESERVE_USD = 40_000;
 const MIN_EITHER_RESERVE_USD = 40_000;
 
 /** Minimum spread % to bother estimating profit */
-const MIN_SPREAD_PCT = 0.05;
+const MIN_SPREAD_PCT = 0.01;
 
 const QUICKSWAP_ROUTER  = "0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff";
 const SUSHISWAP_ROUTER  = "0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506";
