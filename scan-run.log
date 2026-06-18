@@ -1,0 +1,5 @@
+npm error Missing script: "scan"
+npm error
+npm error To see a list of scripts, run:
+npm error   npm run
+npm error A complete log of this run can be found in: /root/.npm/_logs/2026-06-18T04_56_02_671Z-debug-0.log
