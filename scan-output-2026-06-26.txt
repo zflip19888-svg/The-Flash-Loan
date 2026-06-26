@@ -1,0 +1,37 @@
+◇ injected env (0) from .env // tip: ◈ encrypted .env [www.dotenvx.com]
+
+════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+  LIVE SPREAD SCANNER  —  Polygon Mainnet
+  Block: #89163179   |   Fri, 26 Jun 2026 04:56:05 GMT
+════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+  MATIC $0.0716   ETH $1546   BTC $59793   Gas 278.7 Gwei   Est. tx cost $0.015
+  Liquidity filter: skip if depth < $50,000 on either DEX side
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Pair                Amount In     QS Depth    QS Out        SS Out        Spread %    Spread $   Net $     Signal       
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+USDC→WMATIC         10000 USDC    $256K / $38K133640.2407   110369.5927   17.4129%    $1665.76   $1660.74  🟡 VERIFY DEPTH ⚠️ shallow
+WMATIC→USDC         20000 WMATIC  $255K / $38K1423.7949     1383.8203     2.8076%     $39.97     $39.24    🟡 VERIFY DEPTH ⚠️ shallow
+USDC→WETH           10000 USDC    $893K / $46K6.3588        5.2886        16.8291%    $1654.39   $1649.37  🟡 VERIFY DEPTH ⚠️ shallow
+WETH→USDC           5 WETH        $890K / $45K7663.4280     6628.2489     13.5080%    $1035.18   $1031.30  🟡 VERIFY DEPTH ⚠️ shallow
+DAI→USDC            10000 DAI     $151K / $15K9340.0593     6022.4085     35.5207%    $3317.65   $3312.64  🟡 VERIFY DEPTH ⚠️ shallow
+USDC→DAI            10000 USDC    $151K / $15K9364.2734     6048.3662     35.4102%    $3315.91   $3310.89  🟡 VERIFY DEPTH ⚠️ shallow
+WBTC→USDC           0.2 WBTC      $72K / $0K  10246.2503    193.0591      98.1158%    $10053.19  $10047.20 🟡 VERIFY DEPTH ⚠️ shallow
+════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+  SUMMARY
+────────────────────────────────────────────────────────────
+  🟡 Verify depth before executing:
+     USDC→WMATIC        spread $1665.76   QS $256K / SS $38K
+     WMATIC→USDC        spread $39.97   QS $255K / SS $38K
+     USDC→WETH          spread $1654.39   QS $893K / SS $46K
+     WETH→USDC          spread $1035.18   QS $890K / SS $45K
+     DAI→USDC           spread $3317.65   QS $151K / SS $15K
+     USDC→DAI           spread $3315.91   QS $151K / SS $15K
+     WBTC→USDC          spread $10053.19   QS $72K / SS $0K
+
+  Pairs scanned: 7
+  Depth filter:  skip < $50,000 per DEX side
+  Gas:           278.7 Gwei  |  est. tx $0.015
+  Timestamp:     2026-06-26T04:56:06.938Z
+════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
