@@ -1,0 +1,7 @@
+{"timestamp":"2026-07-03T04:56:13.866Z","pair":"USDC→WMATIC","amount_in":10000,"spread_percent":17.2511,"spread_usd":1653.87,"net_usd":1648.86,"qs_depth":"$258K","ss_depth":"$39K","signal":"VERIFY_DEPTH"}
+{"timestamp":"2026-07-03T04:56:13.866Z","pair":"WMATIC→USDC","amount_in":20000,"spread_percent":2.8661,"spread_usd":41.58,"net_usd":40.84,"qs_depth":"$258K","ss_depth":"$39K","signal":"VERIFY_DEPTH"}
+{"timestamp":"2026-07-03T04:56:13.866Z","pair":"USDC→WETH","amount_in":10000,"spread_percent":16.1250,"spread_usd":1588.14,"net_usd":1583.13,"qs_depth":"$937K","ss_depth":"$47K","signal":"VERIFY_DEPTH"}
+{"timestamp":"2026-07-03T04:56:13.866Z","pair":"WETH→USDC","amount_in":5,"spread_percent":14.4376,"spread_usd":1215.70,"net_usd":1211.43,"qs_depth":"$935K","ss_depth":"$47K","signal":"VERIFY_DEPTH"}
+{"timestamp":"2026-07-03T04:56:13.866Z","pair":"DAI→USDC","amount_in":10000,"spread_percent":35.4686,"spread_usd":3315.97,"net_usd":3310.95,"qs_depth":"$151K","ss_depth":"$15K","signal":"VERIFY_DEPTH"}
+{"timestamp":"2026-07-03T04:56:13.866Z","pair":"USDC→DAI","amount_in":10000,"spread_percent":35.4651,"spread_usd":3317.86,"net_usd":3312.85,"qs_depth":"$151K","ss_depth":"$15K","signal":"VERIFY_DEPTH"}
+{"timestamp":"2026-07-03T04:56:13.866Z","pair":"WBTC→USDC","amount_in":0.2,"spread_percent":98.1288,"spread_usd":10288.16,"net_usd":10282.01,"qs_depth":"$73K","ss_depth":"$0K","signal":"VERIFY_DEPTH"}
