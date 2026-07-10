@@ -40,8 +40,8 @@ export const ENV = {
   POLYGON_WS_URL:       optionalEnv("POLYGON_WS_URL"),
   // Optional — only needed for live execution
   PRIVATE_KEY:          optionalEnv("PRIVATE_KEY"),
-  FLASH_LOAN_ADDRESS:   optionalEnv("FLASH_LOAN_ADDRESS"),
-  PRICE_ORACLE_ADDRESS: optionalEnv("PRICE_ORACLE_ADDRESS"),
+  FLASH_LOAN_ADDRESS:   optionalEnv("FLASH_LOAN_ADDRESS",   "0xBafc19Fd23714bD2F3256C20a6036a5B31A9DbD8"),
+  PRICE_ORACLE_ADDRESS: optionalEnv("PRICE_ORACLE_ADDRESS", "0xbBaf624eDe7A57141ADFF779dBf474c9527faD9f"),
   LOG_LEVEL:            optionalEnv("LOG_LEVEL", "info"),
 } as const;
 
