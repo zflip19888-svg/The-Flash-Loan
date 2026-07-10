@@ -45,7 +45,7 @@ import { ChainlinkPriceFeed, TOKEN_TO_FEED, FEEDS } from "./price-feed";
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Minimum USD liquidity required on EACH DEX side for a pair to be scannable */
-const MIN_POOL_DEPTH_USD = 50_000;
+const MIN_POOL_DEPTH_USD = 15_000;
 
 const QUICKSWAP_FACTORY = "0x5757371414417b8C6CAad45bAeF941aBc7d3Ab32";
 const SUSHISWAP_FACTORY = "0xc35DADB65012eC5796536bD9864eD8773aBc74C4";
