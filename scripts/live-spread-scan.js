@@ -41,7 +41,6 @@ const TOKENS = {
   WMATIC:{ addr: "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270", decimals: 18, symbol: "WMATIC", usdPrice: null },
   WETH:  { addr: "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619", decimals: 18, symbol: "WETH",  usdPrice: null },
   DAI:   { addr: "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063", decimals: 18, symbol: "DAI",   usdPrice: 1.0 },
-  WBTC:  { addr: "0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6", decimals: 8,  symbol: "WBTC",  usdPrice: null },
 };
 
 const SCAN_PAIRS = [
@@ -51,7 +50,6 @@ const SCAN_PAIRS = [
   { from: TOKENS.WETH,   to: TOKENS.USDC,   amount: 5      },
   { from: TOKENS.DAI,    to: TOKENS.USDC,   amount: 10_000 },
   { from: TOKENS.USDC,   to: TOKENS.DAI,    amount: 10_000 },
-  { from: TOKENS.WBTC,   to: TOKENS.USDC,   amount: 0.2    },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -162,7 +160,6 @@ async function main() {
   // Patch token prices
   TOKENS.WMATIC.usdPrice = maticUsd;
   TOKENS.WETH.usdPrice   = ethUsd;
-  TOKENS.WBTC.usdPrice   = btcUsd;
 
   const gasPriceGwei = feeData.gasPrice
     ? parseFloat(ethers.formatUnits(feeData.gasPrice, "gwei"))
