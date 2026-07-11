@@ -38,6 +38,7 @@ import { logInfo, logWarn, logError, logDebug } from "./logger";
 import { NonceManager }                          from "./nonce-manager";
 import { ChainlinkPriceFeed, FEEDS }             from "./price-feed";
 import { writeOpportunity, readTodayLog, OpportunityRecord } from "./opportunity-log";
+import { SpreadHMM, HMMState, Regime }                        from "./hmm";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -141,6 +142,10 @@ export class ScanLoop {
   private sessionOpps   = 0;
   private sessionTrades = 0;
   private sessionProfit = 0;
+
+  /** Hidden Markov Model — regime detector (one per ScanLoop instance) */
+  private hmm = new SpreadHMM();
+  private lastHMMState: HMMState | null = null;
 
   constructor() {
     this.http       = new JsonRpcProvider(ENV.POLYGON_RPC_URL);
@@ -269,6 +274,42 @@ export class ScanLoop {
 
     const viable = results.filter((r): r is PairResult => r !== null && r.viable);
 
+    // ── HMM regime update — use best spread signal across all results ────────
+    const bestResult = results
+      .filter((r): r is PairResult => r !== null)
+      .sort((a, b) => b.spreadUsd - a.spreadUsd)[0];
+
+    let hmmState: HMMState | null = null;
+    if (bestResult) {
+      const spreadPct = bestResult.spreadUsd / Math.max(bestResult.qsDepthUsd, 1) * 100;
+      hmmState = this.hmm.update(spreadPct, bestResult.pair.name);
+      this.lastHMMState = hmmState;
+
+      if (hmmState.regime !== (this.lastHMMState?.regime ?? "COLD") || hmmState.consecutiveTicks === 1) {
+        logInfo("HMM regime", {
+          regime:       hmmState.regime,
+          confidence:   hmmState.confidence.toFixed(3),
+          ticks:        hmmState.consecutiveTicks,
+          spreadObs:    hmmState.spreadObs,
+          multiplier:   hmmState.executionMultiplier,
+          volatility:   this.hmm.spreadVolatility().toFixed(2),
+          belief:       this.hmm.beliefVector().map(v => v.toFixed(3)).join(" | "),
+        });
+      }
+    }
+
+    // HMM gate: block execution in COLD regime with low confidence
+    const hmmBlocked = hmmState !== null
+      && hmmState.regime === "COLD"
+      && hmmState.confidence > 0.80;
+
+    if (hmmBlocked) {
+      logDebug("HMM COLD block — skipping execution", {
+        confidence: hmmState!.confidence.toFixed(3),
+        ticks:      hmmState!.consecutiveTicks,
+      });
+    }
+
     for (const r of viable) {
       this.sessionOpps++;
       const _signal = r.viable ? "EXECUTE" : "VERIFY_DEPTH";
@@ -294,6 +335,9 @@ export class ScanLoop {
         cheaperDex:   dexLabel(r.cheaperDex),
         executed:     false,
         ..._note ? { note: _note } : {},
+        hmmRegime:       hmmState?.regime,
+        hmmConfidence:   hmmState ? parseFloat(hmmState.confidence.toFixed(3)) : undefined,
+        hmmMultiplier:   hmmState?.executionMultiplier,
       };
 
       logInfo("Opportunity", {
@@ -307,7 +351,20 @@ export class ScanLoop {
         dryRun:      DRY_RUN || !this.flashLoan,
       });
 
-      if (this.flashLoan && this.nonceMgr && this.wallet && !DRY_RUN) {
+      // Apply HMM execution multiplier — HOT regime lowers the bar, COLD raises it
+      const hmmMultiplier   = hmmState?.executionMultiplier ?? 1.0;
+      const adjustedMinProfit = MIN_PROFIT_USD * hmmMultiplier;
+      if (r.netProfitUsd < adjustedMinProfit) {
+        logDebug("HMM profit filter", {
+          pair:            r.pair.name,
+          net:             r.netProfitUsd.toFixed(2),
+          adjustedMin:     adjustedMinProfit.toFixed(2),
+          regime:          hmmState?.regime ?? "UNKNOWN",
+        });
+        continue;
+      }
+
+      if (this.flashLoan && this.nonceMgr && this.wallet && !DRY_RUN && !hmmBlocked) {
         const txResult = await this._execute(r, gasPrice, gasCostUsd);
         record.executed = true;
         record.txHash   = txResult.hash;

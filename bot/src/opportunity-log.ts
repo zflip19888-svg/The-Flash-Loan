@@ -33,6 +33,10 @@ export interface OpportunityRecord {
   txHash?:       string;
   txStatus?:     "success" | "reverted" | "pending";
   error?:        string;
+  // HMM regime metadata
+  hmmRegime?:      string;   // "COLD" | "WARM" | "HOT"
+  hmmConfidence?:  number;   // posterior probability ∈ [0,1]
+  hmmMultiplier?:  number;   // profit threshold scaler applied
 }
 
 const LOG_DIR = path.resolve(__dirname, "../../logs");
