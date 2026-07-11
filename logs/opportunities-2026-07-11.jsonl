@@ -1,0 +1,5 @@
+{"ts":"2026-07-11T04:56:47.948Z","pair":"USDC/WMATIC","spreadUsd":1621.45,"cheaper":"QuickSwap","signal":"EXECUTE","phantom":false}
+{"ts":"2026-07-11T04:56:47.948Z","pair":"WMATIC/USDC","spreadUsd":1085.71,"cheaper":"QuickSwap","signal":"EXECUTE","phantom":false}
+{"ts":"2026-07-11T04:56:47.948Z","pair":"WETH/USDC","spreadUsd":2385824.11,"cheaper":"QuickSwap","signal":"EXECUTE","phantom":false}
+{"ts":"2026-07-11T04:56:47.948Z","pair":"USDC/WETH","spreadUsd":1569.93,"cheaper":"QuickSwap","signal":"EXECUTE","phantom":false}
+{"ts":"2026-07-11T04:56:47.948Z","pair":"DAI/USDC","spreadUsd":3330.48,"cheaper":"QuickSwap","signal":"EXECUTE","phantom":true}
