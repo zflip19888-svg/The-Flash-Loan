@@ -1,0 +1,33 @@
+◇ injected env (0) from .env // tip: ⌘ enable debugging { debug: true }
+
+════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+  LIVE SPREAD SCANNER  —  Polygon Mainnet
+  Block: #90084777   |   Sun, 12 Jul 2026 04:56:02 GMT
+════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+  MATIC $0.0793   ETH $1804   BTC $63972   Gas 279.7 Gwei   Est. tx cost $0.017
+  Liquidity filter: skip pair if BOTH DEXes < $15,000 | phantom guard on stablecoin spreads > 20%
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Pair                Amount In     QS Depth    QS Out        SS Out        Spread %    Spread $   Net $     Signal       
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+WETH→USDC           10 WETH       $964K / $49K17681.4492    13148.4186    25.6372%    $4533.03   $2844.26  🟢 EXECUTE
+WETH→USDC           15 WETH       $964K / $49K26281.4537    17378.4761    33.8755%    $8902.98   $3940.87  🟢 EXECUTE
+WETH→WMATIC         10 WETH       $194K / $46K207374.9143   162681.1757   21.5521%    $3545.44   $2135.03  🟢 EXECUTE
+WMATIC→USDC         20000 WMATIC  $269K / $40K1575.9212     1524.6998     3.2503%     $51.22     $48.39    🟢 EXECUTE
+WMATIC→USDC         50000 WMATIC  $269K / $40K3905.5472     3606.6110     7.6541%     $298.94    $267.39   🟢 EXECUTE
+════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+  SUMMARY
+────────────────────────────────────────────────────────────
+  🟢 Execute now:
+     WETH→USDC          cheaper: QS   spread $4533.03   net ~$2844.26 (slip 37.1%)   QS $964K / SS $49K
+     WETH→USDC          cheaper: QS   spread $8902.98   net ~$3940.87 (slip 55.6%)   QS $964K / SS $49K
+     WETH→WMATIC        cheaper: QS   spread $3545.44   net ~$2135.03 (slip 39.5%)   QS $194K / SS $46K
+     WMATIC→USDC        cheaper: QS   spread $51.22   net ~$48.39 (slip 4.0%)   QS $269K / SS $40K
+     WMATIC→USDC        cheaper: QS   spread $298.94   net ~$267.39 (slip 9.9%)   QS $269K / SS $40K
+
+  Pairs scanned: 5
+  Depth filter:  skip < $15,000 per DEX side
+  Gas:           279.7 Gwei  |  est. tx $0.017
+  Timestamp:     2026-07-12T04:56:02.758Z
+════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
