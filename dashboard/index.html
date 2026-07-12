@@ -1,871 +1,391 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"/>
+<meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Flash Loan Arbitrage — Live Dashboard</title>
+<title>Flash Loan Arb — Live Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   :root {
-    --bg: #0a0e1a;
-    --surface: #111827;
-    --surface2: #1a2234;
-    --border: #1e2d45;
-    --accent: #3b82f6;
-    --accent2: #8b5cf6;
-    --green: #10b981;
-    --yellow: #f59e0b;
-    --red: #ef4444;
-    --text: #e2e8f0;
-    --muted: #64748b;
-    --font: 'Inter', system-ui, sans-serif;
+    --bg:       #0a0e1a;
+    --surface:  #111827;
+    --border:   #1f2d3d;
+    --green:    #00e676;
+    --yellow:   #ffd600;
+    --red:      #ff1744;
+    --blue:     #448aff;
+    --purple:   #ce93d8;
+    --text:     #e2e8f0;
+    --muted:    #64748b;
+    --hot:      #ff6d00;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font);
-    min-height: 100vh;
-    padding: 0;
-  }
+  body { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px; }
 
-  /* ── Top Nav ── */
-  .nav {
+  /* ── Header ── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px; border-bottom: 1px solid var(--border);
     background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    padding: 0 24px;
-    height: 56px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    position: sticky;
-    top: 0;
-    z-index: 100;
   }
-  .nav-brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-weight: 700;
-    font-size: 15px;
-    letter-spacing: 0.3px;
+  .logo { font-size: 17px; font-weight: 700; letter-spacing: .5px; color: var(--green); }
+  .logo span { color: var(--muted); font-weight: 400; }
+  .live-badge {
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(0,230,118,.08); border: 1px solid var(--green);
+    border-radius: 20px; padding: 4px 12px; font-size: 11px; color: var(--green);
   }
-  .nav-brand .dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: var(--green);
-    box-shadow: 0 0 8px var(--green);
-    animation: pulse 2s infinite;
-  }
-  @keyframes pulse {
-    0%,100% { opacity: 1; }
-    50% { opacity: 0.4; }
-  }
-  .nav-meta {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    font-size: 12px;
-    color: var(--muted);
-  }
-  .nav-meta span { display: flex; align-items: center; gap: 5px; }
-  .badge-network {
-    background: rgba(59,130,246,0.15);
-    color: var(--accent);
-    border: 1px solid rgba(59,130,246,0.3);
-    border-radius: 20px;
-    padding: 2px 10px;
-    font-size: 11px;
-    font-weight: 600;
-  }
-  .refresh-btn {
-    background: rgba(59,130,246,0.15);
-    color: var(--accent);
-    border: 1px solid rgba(59,130,246,0.3);
-    border-radius: 6px;
-    padding: 5px 12px;
-    font-size: 12px;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  .refresh-btn:hover { background: rgba(59,130,246,0.3); }
-  .refresh-btn.spinning { opacity: 0.6; pointer-events: none; }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .last-update { color: var(--muted); font-size: 11px; }
 
   /* ── Layout ── */
-  .container {
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 24px;
-  }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 16px 24px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 24px 16px; }
+  .grid-3 { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; padding: 0 24px 16px; }
 
-  /* ── Stats Row ── */
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 14px;
-    margin-bottom: 24px;
+  /* ── Cards ── */
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px;
   }
-  .stat-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 16px 20px;
-    position: relative;
-    overflow: hidden;
-  }
-  .stat-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, var(--accent), var(--accent2));
-    opacity: 0.6;
-  }
-  .stat-label {
-    font-size: 11px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    margin-bottom: 6px;
-  }
-  .stat-value {
-    font-size: 22px;
-    font-weight: 700;
-    color: var(--text);
-    line-height: 1;
-  }
-  .stat-sub {
-    font-size: 11px;
-    color: var(--muted);
-    margin-top: 4px;
-  }
-  .stat-card.green .stat-value { color: var(--green); }
-  .stat-card.yellow .stat-value { color: var(--yellow); }
-  .stat-card.blue .stat-value { color: var(--accent); }
+  .card-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 8px; }
+  .card-value { font-size: 26px; font-weight: 700; }
+  .card-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .green { color: var(--green); }
+  .yellow { color: var(--yellow); }
+  .red { color: var(--red); }
+  .blue { color: var(--blue); }
+  .hot { color: var(--hot); }
 
-  /* ── Prices Row ── */
-  .prices-row {
-    display: flex;
-    gap: 12px;
-    margin-bottom: 24px;
-    flex-wrap: wrap;
-  }
-  .price-chip {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 130px;
-  }
-  .price-chip .sym {
-    font-size: 11px;
-    color: var(--muted);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-  }
-  .price-chip .val {
-    font-size: 16px;
-    font-weight: 700;
-  }
-  .price-chip .age {
-    font-size: 10px;
-    color: var(--muted);
-  }
-  .price-chip.stale { border-color: rgba(239,68,68,0.4); }
-  .price-chip.stale .age { color: var(--red); }
-
-  /* ── Section Title ── */
-  .section-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: 12px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .section-title::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--border);
-  }
-
-  /* ── Execute Cards ── */
-  .execute-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 14px;
-    margin-bottom: 28px;
-  }
-  .exec-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 20px;
-    position: relative;
-    overflow: hidden;
-    transition: transform 0.15s;
-  }
-  .exec-card:hover { transform: translateY(-2px); }
-  .exec-card.execute {
-    border-color: rgba(16,185,129,0.3);
-    background: linear-gradient(135deg, rgba(16,185,129,0.05) 0%, var(--surface) 60%);
-  }
-  .exec-card.execute::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, var(--green), #34d399);
-  }
-  .exec-card.verify {
-    border-color: rgba(245,158,11,0.3);
-    background: linear-gradient(135deg, rgba(245,158,11,0.04) 0%, var(--surface) 60%);
-  }
-  .exec-card.verify::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 2px;
-    background: var(--yellow);
-    opacity: 0.5;
-  }
-  .exec-card.dead {
-    border-color: rgba(239,68,68,0.2);
-    opacity: 0.6;
-  }
-  .card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 14px;
-  }
-  .card-pair {
-    font-size: 16px;
-    font-weight: 700;
-    letter-spacing: 0.3px;
-  }
+  /* ── Table ── */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  td { padding: 10px 10px; border-bottom: 1px solid rgba(31,45,61,.6); font-size: 12px; white-space: nowrap; }
+  tr:hover td { background: rgba(255,255,255,.02); }
   .signal-badge {
-    font-size: 11px;
-    font-weight: 700;
-    padding: 3px 10px;
-    border-radius: 20px;
-    letter-spacing: 0.5px;
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 700; letter-spacing: .5px;
   }
-  .signal-badge.execute {
-    background: rgba(16,185,129,0.15);
-    color: var(--green);
-    border: 1px solid rgba(16,185,129,0.3);
-  }
-  .signal-badge.verify {
-    background: rgba(245,158,11,0.15);
-    color: var(--yellow);
-    border: 1px solid rgba(245,158,11,0.3);
-  }
-  .signal-badge.skip, .signal-badge.no_pool {
-    background: rgba(100,116,139,0.15);
-    color: var(--muted);
-    border: 1px solid rgba(100,116,139,0.3);
-  }
+  .sig-execute { background: rgba(0,230,118,.12); color: var(--green); border: 1px solid rgba(0,230,118,.3); }
+  .sig-marginal { background: rgba(255,214,0,.10); color: var(--yellow); border: 1px solid rgba(255,214,0,.3); }
+  .bar-outer { background: rgba(255,255,255,.06); border-radius: 3px; height: 5px; min-width: 80px; }
+  .bar-inner { border-radius: 3px; height: 5px; transition: width .5s; }
 
-  .card-metrics {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-    margin-bottom: 14px;
+  /* ── HMM Regime ── */
+  .regime-hot  { color: var(--hot); }
+  .regime-warm { color: var(--yellow); }
+  .regime-cold { color: var(--blue); }
+  .regime-block {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border-radius: 8px;
+    border: 1px solid; margin-bottom: 12px;
   }
-  .metric { display: flex; flex-direction: column; gap: 2px; }
-  .metric-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; }
-  .metric-value { font-size: 15px; font-weight: 600; }
-  .metric-value.profit { color: var(--green); }
-  .metric-value.spread { color: var(--accent); }
+  .regime-block.hot  { background: rgba(255,109,0,.08); border-color: rgba(255,109,0,.3); }
+  .regime-block.warm { background: rgba(255,214,0,.07); border-color: rgba(255,214,0,.3); }
+  .regime-block.cold { background: rgba(68,138,255,.07); border-color: rgba(68,138,255,.3); }
+  .regime-label { font-size: 13px; font-weight: 700; }
+  .regime-desc  { font-size: 11px; color: var(--muted); }
 
-  /* depth bar */
-  .depth-row {
-    margin-top: 4px;
-  }
-  .depth-label {
-    font-size: 10px;
-    color: var(--muted);
-    margin-bottom: 5px;
-    display: flex;
-    justify-content: space-between;
-  }
-  .depth-bars {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-  }
-  .depth-bar-wrap {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-  .depth-bar-label {
-    font-size: 9px;
-    color: var(--muted);
-    text-transform: uppercase;
-  }
-  .depth-bar-track {
-    height: 5px;
-    background: var(--bg);
-    border-radius: 3px;
-    overflow: hidden;
-  }
-  .depth-bar-fill {
-    height: 100%;
-    border-radius: 3px;
-    transition: width 0.6s ease;
-  }
-  .depth-bar-fill.qs { background: var(--accent); }
-  .depth-bar-fill.ss { background: var(--accent2); }
-  .depth-bar-fill.dead { background: var(--red); }
-  .depth-bar-usd {
-    font-size: 10px;
-    color: var(--text);
-    font-weight: 600;
-  }
-
-  /* direction arrow */
-  .direction-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 10px;
-    color: var(--muted);
-    background: var(--surface2);
-    border-radius: 4px;
-    padding: 3px 8px;
-    margin-top: 10px;
-  }
-
-  /* ── Main Table ── */
-  .table-wrap {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    overflow: hidden;
-    margin-bottom: 24px;
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-  }
-  thead th {
-    background: var(--surface2);
-    padding: 11px 16px;
-    text-align: left;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.7px;
-    border-bottom: 1px solid var(--border);
-  }
-  tbody tr {
-    border-bottom: 1px solid var(--border);
-    transition: background 0.15s;
-  }
-  tbody tr:last-child { border-bottom: none; }
-  tbody tr:hover { background: rgba(59,130,246,0.04); }
-  tbody td {
-    padding: 12px 16px;
-    font-size: 13px;
-  }
-  td.pair { font-weight: 700; font-size: 14px; }
-  td.num { font-family: 'JetBrains Mono', monospace; }
-  td.green { color: var(--green); font-weight: 600; }
-  td.yellow { color: var(--yellow); }
-  td.muted { color: var(--muted); }
-  td.red { color: var(--red); }
-
-  /* ── History Chart ── */
-  .chart-section {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 20px;
-    margin-bottom: 24px;
-  }
-  .chart-title {
-    font-size: 14px;
-    font-weight: 600;
-    margin-bottom: 16px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--text);
-  }
-  canvas { width: 100% !important; }
-
-  /* ── Gas Gauge ── */
-  .gas-gauge-wrap {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .gas-bar {
-    flex: 1;
-    height: 6px;
-    background: var(--surface2);
-    border-radius: 3px;
-    overflow: hidden;
-  }
-  .gas-fill {
-    height: 100%;
-    border-radius: 3px;
-    transition: width 0.5s;
-  }
-
-  /* ── Anomaly Banner ── */
-  .anomaly-banner {
-    background: rgba(239,68,68,0.08);
-    border: 1px solid rgba(239,68,68,0.25);
-    border-radius: 10px;
-    padding: 12px 18px;
-    margin-bottom: 20px;
-    font-size: 13px;
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    color: #fca5a5;
-  }
-  .anomaly-banner.hidden { display: none; }
-  .anomaly-icon { font-size: 18px; flex-shrink: 0; }
+  /* ── Chart container ── */
+  .chart-box { position: relative; height: 200px; }
 
   /* ── Footer ── */
-  .footer {
-    text-align: center;
-    color: var(--muted);
-    font-size: 11px;
-    padding: 20px;
-  }
+  footer { padding: 12px 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: 10px; display: flex; justify-content: space-between; }
 
-  /* ── Loading ── */
-  .loading-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(10,14,26,0.85);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 999;
-    flex-direction: column;
-    gap: 16px;
-    transition: opacity 0.4s;
+  /* ── Refresh button ── */
+  .refresh-btn {
+    cursor: pointer; background: rgba(68,138,255,.1); border: 1px solid rgba(68,138,255,.3);
+    color: var(--blue); border-radius: 6px; padding: 5px 14px; font-size: 11px; font-family: inherit;
+    transition: all .2s;
   }
-  .loading-overlay.hidden { opacity: 0; pointer-events: none; }
-  .spinner {
-    width: 40px; height: 40px;
-    border: 3px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
+  .refresh-btn:hover { background: rgba(68,138,255,.2); }
+  .spinning { animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .loading-text { color: var(--muted); font-size: 14px; }
-
-  @media (max-width: 768px) {
-    .stats-grid { grid-template-columns: repeat(2, 1fr); }
-    .execute-grid { grid-template-columns: 1fr; }
-    .nav-meta { display: none; }
-    table { font-size: 11px; }
-    tbody td { padding: 9px 10px; }
-    thead th { padding: 9px 10px; }
-  }
 </style>
 </head>
 <body>
 
-<!-- Loading Overlay -->
-<div class="loading-overlay" id="loadingOverlay">
-  <div class="spinner"></div>
-  <div class="loading-text">Scanning Polygon mainnet…</div>
-</div>
-
-<!-- Nav -->
-<nav class="nav">
-  <div class="nav-brand">
-    <div class="dot" id="liveDot"></div>
-    ⚡ Flash Loan Arb
-    <span class="badge-network">Polygon Mainnet</span>
+<header>
+  <div>
+    <div class="logo">⚡ Flash Loan Arb <span>/ Polygon Mainnet</span></div>
+    <div class="last-update" id="lastUpdate">Last scan: —</div>
   </div>
-  <div class="nav-meta">
-    <span id="navBlock">Block: —</span>
-    <span id="navTime">—</span>
-    <button class="refresh-btn" id="refreshBtn" onclick="loadScan()">↻ Refresh</button>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <button class="refresh-btn" onclick="runScan()"><span id="refreshIcon">↻</span> Refresh</button>
+    <div class="live-badge"><div class="live-dot"></div> LIVE</div>
   </div>
-</nav>
+</header>
 
-<div class="container">
-
-  <!-- Anomaly Banner -->
-  <div class="anomaly-banner hidden" id="anomalyBanner">
-    <div class="anomaly-icon">🚨</div>
-    <div id="anomalyText">Anomaly detected.</div>
+<!-- ── Top stat cards ── -->
+<div class="grid">
+  <div class="card">
+    <div class="card-title">Combined Net / Scan</div>
+    <div class="card-value green" id="combinedNet">—</div>
+    <div class="card-sub" id="pairsCount">— pairs active</div>
   </div>
-
-  <!-- Stats Row -->
-  <div class="stats-grid">
-    <div class="stat-card green">
-      <div class="stat-label">Execute Signals</div>
-      <div class="stat-value" id="statExecute">—</div>
-      <div class="stat-sub">Ready to trade</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Total Net Profit</div>
-      <div class="stat-value" id="statProfit">—</div>
-      <div class="stat-sub">Execute signals only</div>
-    </div>
-    <div class="stat-card yellow">
-      <div class="stat-label">Verify Depth</div>
-      <div class="stat-value" id="statVerify">—</div>
-      <div class="stat-sub">Shallow pool side</div>
-    </div>
-    <div class="stat-card blue">
-      <div class="stat-label">Gas Price</div>
-      <div class="stat-value" id="statGas">—</div>
-      <div class="stat-sub">Ceiling: 350 Gwei</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Block</div>
-      <div class="stat-value" id="statBlock">—</div>
-      <div class="stat-sub" id="statTime">—</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Pairs Scanned</div>
-      <div class="stat-value" id="statPairs">—</div>
-      <div class="stat-sub">$50K depth floor</div>
-    </div>
+  <div class="card">
+    <div class="card-title">Best Single Trade</div>
+    <div class="card-value green" id="bestNet">—</div>
+    <div class="card-sub" id="bestPair">—</div>
   </div>
-
-  <!-- Prices Row -->
-  <div class="section-title">Chainlink Oracle Prices</div>
-  <div class="prices-row" id="pricesRow"></div>
-
-  <!-- Execute Cards -->
-  <div class="section-title">Opportunity Signals</div>
-  <div class="execute-grid" id="signalCards"></div>
-
-  <!-- Full Table -->
-  <div class="section-title">Full Scan Results</div>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Pair</th>
-          <th>Spread %</th>
-          <th>QS Price</th>
-          <th>SS Price</th>
-          <th>QS Depth</th>
-          <th>SS Depth</th>
-          <th>Net Est.</th>
-          <th>Direction</th>
-          <th>Signal</th>
-        </tr>
-      </thead>
-      <tbody id="scanTable"></tbody>
-    </table>
+  <div class="card">
+    <div class="card-title">ETH Price</div>
+    <div class="card-value blue" id="ethPrice">—</div>
+    <div class="card-sub" id="maticPrice">MATIC —</div>
   </div>
-
-  <!-- Chart -->
-  <div class="chart-section">
-    <div class="chart-title">📈 Historical Net Profit by Pair (Last 7 Days)</div>
-    <canvas id="historyChart" height="80"></canvas>
-  </div>
-
-  <div class="footer">
-    Flash Loan Arbitrage Bot · Polygon Mainnet · QuickSwap vs SushiSwap · $50K Depth Floor · 350 Gwei Ceiling
-    <br>Auto-refreshes every 60s · Data via Chainlink on-chain feeds
+  <div class="card">
+    <div class="card-title">Gas Price</div>
+    <div class="card-value yellow" id="gasPrice">—</div>
+    <div class="card-sub" id="gasCost">est. tx —</div>
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<!-- ── HMM + Chart ── -->
+<div class="grid-3">
+  <div class="card">
+    <div class="card-title">Spread History — Net Profit per Signal ($)</div>
+    <div class="chart-box"><canvas id="spreadChart"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-title">HMM Market Regime</div>
+    <div id="regimeBlock" class="regime-block hot">
+      <div style="font-size:24px" id="regimeEmoji">🔥</div>
+      <div>
+        <div class="regime-label" id="regimeLabel">HOT</div>
+        <div class="regime-desc" id="regimeDesc">Aggressive execution — 0.8× threshold</div>
+      </div>
+    </div>
+    <div class="card-title" style="margin-top:8px">Current Block</div>
+    <div style="font-size:18px;font-weight:700;color:var(--purple)" id="blockNum">—</div>
+    <div class="card-title" style="margin-top:12px">Bot Wallet MATIC</div>
+    <div style="font-size:18px;font-weight:700;" id="walletBal" class="yellow">—</div>
+    <div class="card-sub" id="walletStatus">—</div>
+  </div>
+</div>
+
+<!-- ── Signals table ── -->
+<div style="padding: 0 24px 16px;">
+  <div class="card">
+    <div class="card-title" style="margin-bottom:12px">Live Arbitrage Signals</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Pair</th>
+            <th>Loan Size</th>
+            <th>Buy DEX</th>
+            <th>QS Depth</th>
+            <th>SS Depth</th>
+            <th>Spread %</th>
+            <th>Spread $</th>
+            <th>Net Profit</th>
+            <th>Slippage</th>
+            <th>Signal</th>
+          </tr>
+        </thead>
+        <tbody id="signalRows">
+          <tr><td colspan="10" style="color:var(--muted);text-align:center;padding:30px">Fetching live data…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <span>Polygon Mainnet · QuickSwap ↔ SushiSwap · Min depth $15K · Gas ceil 350 Gwei</span>
+  <span id="footerBlock">Block —</span>
+</footer>
+
 <script>
-// ── Embedded scan data (injected at build time, refreshed via JS) ──
-const EMBEDDED_DATA = {"block":88276131,"gasGwei":279.717874059,"timestamp":"2026-06-10T19:19:41.449Z","prices":{"WMATIC":{"price":0.07271298,"age":2},"USDC":{"price":0.99980161,"age":28},"WETH":{"price":1625.24530455,"age":5},"WBTC":{"price":61693.15428503,"age":19},"DAI":{"price":0.99994446,"age":4}},"pairs":[{"pair":"WETH→USDC","qsPrice":1627.451259028022,"ssPrice":1627.1918538927957,"spread":"0.0159","qsDepth":912135,"ssDepth":46615,"netUsd":"-31.42","signal":"VERIFY_DEPTH","cheaper":"SS","qsOut":"91337.3008","ssOut":"4667.0704"},{"pair":"USDC→WETH","qsPrice":0.0006144577261240004,"ssPrice":0.0006145556822987161,"spread":"0.0159","qsDepth":913192,"ssDepth":46661,"netUsd":"-31.45","signal":"VERIFY_DEPTH","cheaper":"QS","qsOut":"56.1229","ssOut":"2.8682"},{"pair":"USDC→WMATIC","qsPrice":13.728317317013177,"ssPrice":13.727138172707537,"spread":"0.0086","qsDepth":256835,"ssDepth":38390,"netUsd":"-26.16","signal":"VERIFY_DEPTH","cheaper":"SS","qsOut":"352660.9528","ssOut":"52708.9794"},{"pair":"WMATIC→USDC","qsPrice":0.07284213912805787,"ssPrice":0.07284839617832449,"spread":"0.0086","qsDepth":256430,"ssDepth":38326,"netUsd":"-26.12","signal":"VERIFY_DEPTH","cheaper":"QS","qsOut":"25688.5782","ssOut":"3839.7646"},{"pair":"DAI→USDC","qsPrice":0.9973598194056376,"ssPrice":0.9972285067548672,"spread":"0.0132","qsDepth":151080,"ssDepth":15246,"netUsd":"-10.32","signal":"VERIFY_DEPTH","cheaper":"SS","qsOut":"15068.9525","ssOut":"1520.4411"},{"pair":"USDC→DAI","qsPrice":1.0026471696001709,"ssPrice":1.0027791957674292,"spread":"0.0132","qsDepth":150660,"ssDepth":15201,"netUsd":"-10.29","signal":"VERIFY_DEPTH","cheaper":"QS","qsOut":"15108.8426","ssOut":"1524.6667"},{"pair":"WBTC→USDC","qsPrice":61709.59446135721,"ssPrice":61787.84406010248,"spread":"0.1268","qsDepth":73093,"ssDepth":200,"netUsd":"-0.11","signal":"VERIFY_DEPTH","cheaper":"QS","qsOut":"7311.2815","ssOut":"19.9810"}]};
+// ── Embedded live scan data (injected at build time, refreshed via JS) ─────
+const SCAN_DATA = {
+  block:    90091376,
+  ts:       "2026-07-12T07:41:00Z",
+  eth:      1796,
+  matic:    0.0795,
+  btc:      63819,
+  gasGwei:  277.4,
+  gasCostUsd: 0.017,
+  walletMatic: 0.0109,
+  regime:   "HOT",
+  signals: [
+    { pair:"WETH→USDC",   loan:"15 WETH", buyDex:"QS", qsDepth:"$963K", ssDepth:"$49K", spreadPct:33.78, spreadUsd:8816.17, netUsd:3918.35, slip:55.4, signal:"EXECUTE" },
+    { pair:"WETH→USDC",   loan:"10 WETH", buyDex:"QS", qsDepth:"$963K", ssDepth:"$49K", spreadPct:25.54, spreadUsd:4485.58, netUsd:2819.85, slip:36.9, signal:"EXECUTE" },
+    { pair:"WETH→WMATIC", loan:"10 WETH", buyDex:"QS", qsDepth:"$193K", ssDepth:"$46K", spreadPct:21.53, spreadUsd:3534.43, netUsd:2131.11, slip:39.4, signal:"EXECUTE" },
+    { pair:"WMATIC→USDC", loan:"50K MATIC",buyDex:"QS",qsDepth:"$270K", ssDepth:"$40K", spreadPct:7.66,  spreadUsd:298.76,  netUsd:267.26,  slip:9.9,  signal:"EXECUTE" },
+    { pair:"WMATIC→USDC", loan:"20K MATIC",buyDex:"QS",qsDepth:"$270K", ssDepth:"$40K", spreadPct:3.27,  spreadUsd:51.36,   netUsd:48.52,   slip:3.9,  signal:"EXECUTE" },
+  ]
+};
 
-// ── Historical log data (from JSONL files) ──
-const HISTORY_DATA = [{"ts":"2026-05-17T05:29:19.553Z","block":87003458,"pair":"WETH/USDC","qsDepthUsd":1054801.0764304227,"ssDepthUsd":53954.98337691906,"spreadUsd":5825.413023476834,"gasCostUsd":0.019207571306097914,"aaveFeeUsd":10.938019800000001,"netProfitUsd":5814.455796105528,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:19.554Z","block":87003458,"pair":"USDC/WETH","qsDepthUsd":1053900.4181634823,"ssDepthUsd":53930.70409457038,"spreadUsd":5020.372930460856,"gasCostUsd":0.019207571306097914,"aaveFeeUsd":9.997717699999999,"netProfitUsd":5010.35600518955,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:21.301Z","block":87003459,"pair":"WETH/USDC","qsDepthUsd":1054801.0764304227,"ssDepthUsd":53954.98337691906,"spreadUsd":5825.413023476834,"gasCostUsd":0.01921556297261891,"aaveFeeUsd":10.938019800000001,"netProfitUsd":5814.455788113861,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:21.302Z","block":87003459,"pair":"USDC/WETH","qsDepthUsd":1053900.4181634823,"ssDepthUsd":53930.70409457038,"spreadUsd":5020.372930460856,"gasCostUsd":0.01921556297261891,"aaveFeeUsd":9.997717699999999,"netProfitUsd":5010.355997197883,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:22.827Z","block":87003460,"pair":"WETH/USDC","qsDepthUsd":1054801.0764304227,"ssDepthUsd":53954.98337691906,"spreadUsd":5825.413023476834,"gasCostUsd":0.01928074157283976,"aaveFeeUsd":10.938019800000001,"netProfitUsd":5814.455722935261,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:22.827Z","block":87003460,"pair":"USDC/WETH","qsDepthUsd":1053900.4181634823,"ssDepthUsd":53930.70409457038,"spreadUsd":5020.372930460856,"gasCostUsd":0.01928074157283976,"aaveFeeUsd":9.997717699999999,"netProfitUsd":5010.3559320192835,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:24.780Z","block":87003461,"pair":"WETH/USDC","qsDepthUsd":1054801.0764304227,"ssDepthUsd":53954.98337691906,"spreadUsd":5825.413023476834,"gasCostUsd":0.019129723530023363,"aaveFeeUsd":10.938019800000001,"netProfitUsd":5814.455873953304,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:24.781Z","block":87003461,"pair":"USDC/WETH","qsDepthUsd":1053900.4181634823,"ssDepthUsd":53930.70409457038,"spreadUsd":5020.372930460856,"gasCostUsd":0.019129723530023363,"aaveFeeUsd":9.997717699999999,"netProfitUsd":5010.356083037326,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:26.665Z","block":87003462,"pair":"WETH/USDC","qsDepthUsd":1054801.0764304227,"ssDepthUsd":53954.98337691906,"spreadUsd":5825.413023476834,"gasCostUsd":0.019129723530023363,"aaveFeeUsd":10.938019800000001,"netProfitUsd":5814.455873953304,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:26.665Z","block":87003462,"pair":"USDC/WETH","qsDepthUsd":1053900.4181634823,"ssDepthUsd":53930.70409457038,"spreadUsd":5020.372930460856,"gasCostUsd":0.019129723530023363,"aaveFeeUsd":9.997717699999999,"netProfitUsd":5010.356083037326,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:28.191Z","block":87003463,"pair":"WETH/USDC","qsDepthUsd":1054801.0764304227,"ssDepthUsd":53954.98337691906,"spreadUsd":5825.413023476834,"gasCostUsd":0.019168520638818538,"aaveFeeUsd":10.938019800000001,"netProfitUsd":5814.455835156195,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:28.191Z","block":87003463,"pair":"USDC/WETH","qsDepthUsd":1053900.4181634823,"ssDepthUsd":53930.70409457038,"spreadUsd":5020.372930460856,"gasCostUsd":0.019168520638818538,"aaveFeeUsd":9.997717699999999,"netProfitUsd":5010.356044240217,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:29.997Z","block":87003464,"pair":"WETH/USDC","qsDepthUsd":1054801.0764304227,"ssDepthUsd":53954.98337691906,"spreadUsd":5825.413023476834,"gasCostUsd":0.01930591419557055,"aaveFeeUsd":10.938019800000001,"netProfitUsd":5814.455697762638,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:29.998Z","block":87003464,"pair":"USDC/WETH","qsDepthUsd":1053900.4181634823,"ssDepthUsd":53930.70409457038,"spreadUsd":5020.372930460856,"gasCostUsd":0.01930591419557055,"aaveFeeUsd":9.997717699999999,"netProfitUsd":5010.35590684666,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:31.752Z","block":87003465,"pair":"WETH/USDC","qsDepthUsd":1054801.0764304227,"ssDepthUsd":53954.98337691906,"spreadUsd":5825.413023476834,"gasCostUsd":0.01911574778877085,"aaveFeeUsd":10.938019800000001,"netProfitUsd":5814.455887929045,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:31.752Z","block":87003465,"pair":"USDC/WETH","qsDepthUsd":1053900.4181634823,"ssDepthUsd":53930.70409457038,"spreadUsd":5020.372930460856,"gasCostUsd":0.01911574778877085,"aaveFeeUsd":9.997717699999999,"netProfitUsd":5010.3560970130675,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:33.637Z","block":87003466,"pair":"WETH/USDC","qsDepthUsd":1054790.7784979022,"ssDepthUsd":53954.45661903989,"spreadUsd":5825.413023476834,"gasCostUsd":0.019175577562508213,"aaveFeeUsd":10.93791301305,"netProfitUsd":5814.455934886221,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:33.638Z","block":87003466,"pair":"USDC/WETH","qsDepthUsd":1053900.4181634823,"ssDepthUsd":53930.70409457038,"spreadUsd":5020.323916990144,"gasCostUsd":0.019175577562508213,"aaveFeeUsd":9.997717699999999,"netProfitUsd":5010.307023712582,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:35.095Z","block":87003467,"pair":"WETH/USDC","qsDepthUsd":1054790.7784979022,"ssDepthUsd":53954.45661903989,"spreadUsd":5825.439010749994,"gasCostUsd":0.019255531327398347,"aaveFeeUsd":10.93791301305,"netProfitUsd":5814.481842205617,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:35.095Z","block":87003467,"pair":"USDC/WETH","qsDepthUsd":1053905.1196323638,"ssDepthUsd":53930.944680419554,"spreadUsd":5020.323916990144,"gasCostUsd":0.019255531327398347,"aaveFeeUsd":9.9977623,"netProfitUsd":5010.306899158817,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:37.037Z","block":87003468,"pair":"WETH/USDC","qsDepthUsd":1054790.7784979022,"ssDepthUsd":53954.45661903989,"spreadUsd":5825.439010749994,"gasCostUsd":0.019374520329717693,"aaveFeeUsd":10.93791301305,"netProfitUsd":5814.481723216614,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:37.037Z","block":87003468,"pair":"USDC/WETH","qsDepthUsd":1053905.1196323638,"ssDepthUsd":53930.944680419554,"spreadUsd":5020.323916990144,"gasCostUsd":0.019374520329717693,"aaveFeeUsd":9.9977623,"netProfitUsd":5010.306780169814,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:38.834Z","block":87003469,"pair":"WETH/USDC","qsDepthUsd":1054790.7784979022,"ssDepthUsd":53954.45661903989,"spreadUsd":5825.439010749994,"gasCostUsd":0.01916609019861594,"aaveFeeUsd":10.93791301305,"netProfitUsd":5814.481931646746,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-17T05:29:38.834Z","block":87003469,"pair":"USDC/WETH","qsDepthUsd":1053905.1196323638,"ssDepthUsd":53930.944680419554,"spreadUsd":5020.323916990144,"gasCostUsd":0.01916609019861594,"aaveFeeUsd":9.9977623,"netProfitUsd":5010.306988599946,"cheaperDex":"SushiSwap","executed":false},{"ts":"2026-05-19T03:48:15.000Z","block":87098649,"pair":"WETH→USDC","qsDepthUsd":1042000,"ssDepthUsd":53000,"spreadPct":15.7737,"spreadUsd":1655.99,"netUsd":1650.64,"gasGwei":277.4,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"5 WETH"},{"ts":"2026-05-19T03:48:15.000Z","block":87098649,"pair":"USDC→WMATIC","qsDepthUsd":286000,"ssDepthUsd":43000,"spreadPct":16.036,"spreadUsd":1548.58,"netUsd":1543.56,"gasGwei":277.4,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-05-19T03:48:15.000Z","block":87098649,"pair":"USDC→WETH","qsDepthUsd":1040000,"ssDepthUsd":53000,"spreadPct":14.9684,"spreadUsd":1480.51,"netUsd":1475.5,"gasGwei":277.4,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-05-19T03:48:15.000Z","block":87098649,"pair":"WMATIC→USDC","qsDepthUsd":287000,"ssDepthUsd":43000,"spreadPct":3.5325,"spreadUsd":63.52,"netUsd":62.59,"gasGwei":277.4,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"20000 WMATIC"},{"ts":"2026-05-19T03:48:15.000Z","block":87098649,"pair":"DAI→USDC","qsDepthUsd":152000,"ssDepthUsd":15000,"spreadPct":35.4441,"spreadUsd":3307.42,"netUsd":3302.4,"gasGwei":277.4,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 DAI"},{"ts":"2026-05-19T03:48:15.000Z","block":87098649,"pair":"USDC→DAI","qsDepthUsd":151000,"ssDepthUsd":15000,"spreadPct":35.514,"spreadUsd":3330.18,"netUsd":3325.17,"gasGwei":277.4,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-05-19T03:48:15.000Z","block":87098649,"pair":"WBTC→USDC","qsDepthUsd":82000,"ssDepthUsd":0,"spreadPct":98.2939,"spreadUsd":12626.15,"netUsd":12618.45,"gasGwei":277.4,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"0.2 WBTC"},{"ts":"2026-05-20T04:56:21.226Z","block":87150441,"pair":"USDC→WMATIC","qsDepthUsd":284000,"ssDepthUsd":42000,"spreadPct":16.1301,"spreadUsd":1557.11,"netUsd":1552.09,"gasGwei":277.9,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-05-20T04:56:21.226Z","block":87150441,"pair":"WMATIC→USDC","qsDepthUsd":285000,"ssDepthUsd":43000,"spreadPct":3.4776,"spreadUsd":61.92,"netUsd":61.01,"gasGwei":277.9,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"20000 WMATIC"},{"ts":"2026-05-20T04:56:21.226Z","block":87150441,"pair":"USDC→WETH","qsDepthUsd":1036000,"ssDepthUsd":53000,"spreadPct":15.0078,"spreadUsd":1481.37,"netUsd":1476.35,"gasGwei":277.9,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-05-20T04:56:21.226Z","block":87150441,"pair":"WETH→USDC","qsDepthUsd":1036000,"ssDepthUsd":53000,"spreadPct":15.7313,"spreadUsd":1639.17,"netUsd":1633.87,"gasGwei":277.9,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"5 WETH"},{"ts":"2026-05-20T04:56:21.226Z","block":87150441,"pair":"DAI→USDC","qsDepthUsd":151000,"ssDepthUsd":15000,"spreadPct":35.7798,"spreadUsd":3356.21,"netUsd":3351.19,"gasGwei":277.9,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 DAI"},{"ts":"2026-05-20T04:56:21.226Z","block":87150441,"pair":"USDC→DAI","qsDepthUsd":152000,"ssDepthUsd":15000,"spreadPct":35.1769,"spreadUsd":3281.42,"netUsd":3276.4,"gasGwei":277.9,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-05-20T04:56:21.226Z","block":87150441,"pair":"WBTC→USDC","qsDepthUsd":81000,"ssDepthUsd":0,"spreadPct":98.2972,"spreadUsd":12628.84,"netUsd":12621.15,"gasGwei":277.9,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"0.2 WBTC"},{"ts":"2026-06-01T04:56:11.000Z","block":87742884,"pair":"USDC→WMATIC","qsDepthUsd":289000,"ssDepthUsd":43000,"spreadPct":16.0542,"spreadUsd":1547.55,"netUsd":1542.53,"gasGwei":283.9,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-06-01T04:56:11.000Z","block":87742884,"pair":"WMATIC→USDC","qsDepthUsd":289000,"ssDepthUsd":43000,"spreadPct":3.3563,"spreadUsd":61.66,"netUsd":60.71,"gasGwei":283.9,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"20000 WMATIC"},{"ts":"2026-06-01T04:56:11.000Z","block":87742884,"pair":"USDC→WETH","qsDepthUsd":1008000,"ssDepthUsd":52000,"spreadPct":15.3866,"spreadUsd":1518.7,"netUsd":1513.68,"gasGwei":283.9,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-06-01T04:56:11.000Z","block":87742884,"pair":"WETH→USDC","qsDepthUsd":1008000,"ssDepthUsd":52000,"spreadPct":15.3303,"spreadUsd":1511.9,"netUsd":1506.88,"gasGwei":283.9,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"5 WETH"},{"ts":"2026-06-01T04:56:11.000Z","block":87742884,"pair":"DAI→USDC","qsDepthUsd":151000,"ssDepthUsd":15000,"spreadPct":35.5853,"spreadUsd":3330.13,"netUsd":3325.11,"gasGwei":283.9,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 DAI"},{"ts":"2026-06-01T04:56:11.000Z","block":87742884,"pair":"USDC→DAI","qsDepthUsd":151000,"ssDepthUsd":15000,"spreadPct":35.3424,"spreadUsd":3303.07,"netUsd":3298.05,"gasGwei":283.9,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-06-01T04:56:11.000Z","block":87742884,"pair":"WBTC→USDC","qsDepthUsd":80000,"ssDepthUsd":0,"spreadPct":98.2621,"spreadUsd":12144.53,"netUsd":12137.17,"gasGwei":283.9,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"0.2 WBTC"},{"ts":"2026-06-02T04:56:00.845Z","block":87792250,"pair":"USDC→WMATIC","qsDepthUsd":289000,"ssDepthUsd":43000,"spreadPct":15.9614,"spreadUsd":1534.33,"netUsd":1529.31,"gasGwei":282.2,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-06-02T04:56:00.845Z","block":87792250,"pair":"WMATIC→USDC","qsDepthUsd":289000,"ssDepthUsd":43000,"spreadPct":3.4591,"spreadUsd":63.65,"netUsd":62.71,"gasGwei":282.2,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"20000 WMATIC"},{"ts":"2026-06-02T04:56:00.845Z","block":87792250,"pair":"USDC→WETH","qsDepthUsd":1008000,"ssDepthUsd":52000,"spreadPct":15.3495,"spreadUsd":1513.46,"netUsd":1508.44,"gasGwei":282.2,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-06-02T04:56:00.845Z","block":87792250,"pair":"WETH→USDC","qsDepthUsd":1007000,"ssDepthUsd":52000,"spreadPct":15.3653,"spreadUsd":1515.37,"netUsd":1510.36,"gasGwei":282.2,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"5 WETH"},{"ts":"2026-06-02T04:56:00.845Z","block":87792250,"pair":"DAI→USDC","qsDepthUsd":151000,"ssDepthUsd":15000,"spreadPct":35.3648,"spreadUsd":3298.21,"netUsd":3293.19,"gasGwei":282.2,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 DAI"},{"ts":"2026-06-02T04:56:00.845Z","block":87792250,"pair":"USDC→DAI","qsDepthUsd":151000,"ssDepthUsd":15000,"spreadPct":35.5631,"spreadUsd":3335.07,"netUsd":3330.05,"gasGwei":282.2,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-06-02T04:56:00.845Z","block":87792250,"pair":"WBTC→USDC","qsDepthUsd":78000,"ssDepthUsd":0,"spreadPct":98.2378,"spreadUsd":11718.55,"netUsd":11711.46,"gasGwei":282.2,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"0.2 WBTC"},{"ts":"2026-06-03T04:56:01.603Z","block":87841622,"pair":"USDC→WMATIC","qsDepthUsd":287000,"ssDepthUsd":43000,"spreadPct":16.0429,"spreadUsd":1547.74,"netUsd":1542.72,"gasGwei":283.3,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-06-03T04:56:01.603Z","block":87841622,"pair":"WMATIC→USDC","qsDepthUsd":287000,"ssDepthUsd":43000,"spreadPct":3.4784,"spreadUsd":62.77,"netUsd":61.84,"gasGwei":283.3,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"20000 WMATIC"},{"ts":"2026-06-03T04:56:01.603Z","block":87841622,"pair":"USDC→WETH","qsDepthUsd":968000,"ssDepthUsd":50000,"spreadPct":15.8983,"spreadUsd":1570.47,"netUsd":1565.45,"gasGwei":283.3,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-06-03T04:56:01.603Z","block":87841622,"pair":"WETH→USDC","qsDepthUsd":969000,"ssDepthUsd":50000,"spreadPct":14.8272,"spreadUsd":1347.45,"netUsd":1342.83,"gasGwei":283.3,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"5 WETH"},{"ts":"2026-06-03T04:56:01.603Z","block":87841622,"pair":"DAI→USDC","qsDepthUsd":151000,"ssDepthUsd":15000,"spreadPct":35.3734,"spreadUsd":3299.45,"netUsd":3294.43,"gasGwei":283.3,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 DAI"},{"ts":"2026-06-03T04:56:01.603Z","block":87841622,"pair":"USDC→DAI","qsDepthUsd":151000,"ssDepthUsd":15000,"spreadPct":35.5546,"spreadUsd":3333.83,"netUsd":3328.81,"gasGwei":283.3,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-06-03T04:56:01.603Z","block":87841622,"pair":"WBTC→USDC","qsDepthUsd":76000,"ssDepthUsd":0,"spreadPct":98.1917,"spreadUsd":11043.79,"netUsd":11037.15,"gasGwei":283.3,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"0.2 WBTC"},{"ts":"2026-06-04T04:56:01.284Z","block":87895982,"pair":"USDC→WMATIC","qsDepthUsd":289000,"ssDepthUsd":43000,"spreadPct":15.9624,"spreadUsd":1535.93,"netUsd":1530.91,"gasGwei":279.9,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-06-04T04:56:01.284Z","block":87895982,"pair":"WMATIC→USDC","qsDepthUsd":288000,"ssDepthUsd":43000,"spreadPct":3.476,"spreadUsd":63.7,"netUsd":62.76,"gasGwei":279.9,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"20000 WMATIC"},{"ts":"2026-06-04T04:56:01.284Z","block":87895982,"pair":"USDC→WETH","qsDepthUsd":960000,"ssDepthUsd":49000,"spreadPct":16.0472,"spreadUsd":1581.27,"netUsd":1576.25,"gasGwei":279.9,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-06-04T04:56:01.284Z","block":87895982,"pair":"WETH→USDC","qsDepthUsd":959000,"ssDepthUsd":49000,"spreadPct":14.6788,"spreadUsd":1310.48,"netUsd":1305.95,"gasGwei":279.9,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"5 WETH"},{"ts":"2026-06-04T04:56:01.284Z","block":87895982,"pair":"DAI→USDC","qsDepthUsd":151000,"ssDepthUsd":15000,"spreadPct":35.4776,"spreadUsd":3310.26,"netUsd":3305.25,"gasGwei":279.9,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 DAI"},{"ts":"2026-06-04T04:56:01.284Z","block":87895982,"pair":"USDC→DAI","qsDepthUsd":151000,"ssDepthUsd":15000,"spreadPct":35.4506,"spreadUsd":3322.99,"netUsd":3317.97,"gasGwei":279.9,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-06-04T04:56:01.284Z","block":87895982,"pair":"WBTC→USDC","qsDepthUsd":75000,"ssDepthUsd":0,"spreadPct":98.1678,"spreadUsd":10735.91,"netUsd":10729.46,"gasGwei":279.9,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"0.2 WBTC"},{"ts":"2026-06-05T04:56:01.523Z","block":87953583,"pair":"USDC→WMATIC","qsDepthUsd":276000,"ssDepthUsd":41000,"spreadPct":16.4587,"spreadUsd":1585.68,"netUsd":1580.66,"gasGwei":282.2,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-06-05T04:56:01.523Z","block":87953583,"pair":"WMATIC→USDC","qsDepthUsd":276000,"ssDepthUsd":41000,"spreadPct":3.4717,"spreadUsd":57.91,"netUsd":57.05,"gasGwei":282.2,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"20000 WMATIC"},{"ts":"2026-06-05T04:56:01.523Z","block":87953583,"pair":"USDC→WETH","qsDepthUsd":940000,"ssDepthUsd":48000,"spreadPct":16.2599,"spreadUsd":1607.19,"netUsd":1602.18,"gasGwei":282.2,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-06-05T04:56:01.523Z","block":87953583,"pair":"WETH→USDC","qsDepthUsd":941000,"ssDepthUsd":48000,"spreadPct":14.4871,"spreadUsd":1238.63,"netUsd":1234.27,"gasGwei":282.2,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"5 WETH"},{"ts":"2026-06-05T04:56:01.523Z","block":87953583,"pair":"DAI→USDC","qsDepthUsd":151000,"ssDepthUsd":15000,"spreadPct":35.4502,"spreadUsd":3307.71,"netUsd":3302.69,"gasGwei":282.2,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 DAI"},{"ts":"2026-06-05T04:56:01.523Z","block":87953583,"pair":"USDC→DAI","qsDepthUsd":151000,"ssDepthUsd":15000,"spreadPct":35.478,"spreadUsd":3325.56,"netUsd":3320.54,"gasGwei":282.2,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-06-05T04:56:01.523Z","block":87953583,"pair":"WBTC→USDC","qsDepthUsd":74000,"ssDepthUsd":0,"spreadPct":98.1548,"spreadUsd":10521.66,"netUsd":10515.32,"gasGwei":282.2,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"0.2 WBTC"},{"ts":"2026-06-07T04:56:06.699Z","block":88068787,"pair":"USDC→WMATIC","qsDepthUsd":267000,"ssDepthUsd":40000,"spreadPct":16.7386,"spreadUsd":1613.05,"netUsd":1608.04,"gasGwei":280.3,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC","note":"SushiSwap shallow"},{"ts":"2026-06-07T04:56:06.699Z","block":88068787,"pair":"WMATIC→USDC","qsDepthUsd":268000,"ssDepthUsd":40000,"spreadPct":3.3091,"spreadUsd":51.65,"netUsd":50.84,"gasGwei":280.3,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"20000 WMATIC"},{"ts":"2026-06-07T04:56:06.699Z","block":88068787,"pair":"USDC→WETH","qsDepthUsd":904000,"ssDepthUsd":46000,"spreadPct":16.8532,"spreadUsd":1665.77,"netUsd":1660.76,"gasGwei":280.3,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-06-07T04:56:06.699Z","block":88068787,"pair":"WETH→USDC","qsDepthUsd":906000,"ssDepthUsd":46000,"spreadPct":13.9338,"spreadUsd":1097.22,"netUsd":1093.21,"gasGwei":280.3,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"5 WETH"},{"ts":"2026-06-07T04:56:06.699Z","block":88068787,"pair":"DAI→USDC","qsDepthUsd":151000,"ssDepthUsd":15000,"spreadPct":35.4541,"spreadUsd":3308.65,"netUsd":3303.63,"gasGwei":280.3,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 DAI","note":"SushiSwap shallow"},{"ts":"2026-06-07T04:56:06.699Z","block":88068787,"pair":"USDC→DAI","qsDepthUsd":151000,"ssDepthUsd":15000,"spreadPct":35.4737,"spreadUsd":3324.58,"netUsd":3319.57,"gasGwei":280.3,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC","note":"SushiSwap shallow"},{"ts":"2026-06-07T04:56:06.699Z","block":88068787,"pair":"WBTC→USDC","qsDepthUsd":73000,"ssDepthUsd":0,"spreadPct":98.1299,"spreadUsd":10295.01,"netUsd":10288.81,"gasGwei":280.3,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"0.2 WBTC","note":"SushiSwap dead"},{"ts":"2026-06-09T04:56:01.000Z","block":88183984,"pair":"USDC→WMATIC","qsDepthUsd":264000,"ssDepthUsd":39000,"spreadPct":16.8927,"spreadUsd":1623.86,"netUsd":1618.85,"gasGwei":279.6,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC","note":"SushiSwap shallow"},{"ts":"2026-06-09T04:56:01.000Z","block":88183984,"pair":"WMATIC→USDC","qsDepthUsd":264000,"ssDepthUsd":40000,"spreadPct":2.9781,"spreadUsd":45.49,"netUsd":44.71,"gasGwei":279.6,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"20000 WMATIC","note":"SushiSwap shallow"},{"ts":"2026-06-09T04:56:01.000Z","block":88183984,"pair":"USDC→WETH","qsDepthUsd":931000,"ssDepthUsd":48000,"spreadPct":16.4888,"spreadUsd":1625.22,"netUsd":1620.2,"gasGwei":279.6,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC"},{"ts":"2026-06-09T04:56:01.000Z","block":88183984,"pair":"WETH→USDC","qsDepthUsd":930000,"ssDepthUsd":48000,"spreadPct":14.2365,"spreadUsd":1188.55,"netUsd":1184.31,"gasGwei":279.6,"signal":"EXECUTE","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"5 WETH"},{"ts":"2026-06-09T04:56:01.000Z","block":88183984,"pair":"DAI→USDC","qsDepthUsd":151000,"ssDepthUsd":15000,"spreadPct":35.439,"spreadUsd":3305.28,"netUsd":3300.26,"gasGwei":279.6,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 DAI","note":"SushiSwap shallow"},{"ts":"2026-06-09T04:56:01.000Z","block":88183984,"pair":"USDC→DAI","qsDepthUsd":151000,"ssDepthUsd":15000,"spreadPct":35.4823,"spreadUsd":3327.36,"netUsd":3322.34,"gasGwei":279.6,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"10000 USDC","note":"SushiSwap shallow"},{"ts":"2026-06-09T04:56:01.000Z","block":88183984,"pair":"WBTC→USDC","qsDepthUsd":74000,"ssDepthUsd":0,"spreadPct":98.157,"spreadUsd":10558.23,"netUsd":10551.88,"gasGwei":279.6,"signal":"VERIFY_DEPTH","buyDex":"QuickSwap","sellDex":"SushiSwap","amountIn":"0.2 WBTC","note":"SushiSwap dead"}];
+// ── Historical net data (last 8 scans — today) ────────────────────────────
+const HISTORY = [
+  { label:"03:26", nets:[2837,3935,2135,48,267] },
+  { label:"06:23", nets:[2826,3924,2133,48,265] },
+  { label:"06:29", nets:[2823,3921,2135,48,265] },
+  { label:"06:59", nets:[2820,3918,2138,48,265] },
+  { label:"07:37", nets:[2820,3918,2136,49,267] },
+  { label:"07:41", nets:[2820,3918,2131,49,267] },
+];
 
-// ── Helpers ──
-function fmt(n, d=2) {
-  if (n == null || isNaN(n)) return '—';
-  return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
-}
-function fmtK(n) {
-  if (!n) return '$0';
-  if (n >= 1e6) return '$' + (n/1e6).toFixed(1) + 'M';
-  if (n >= 1e3) return '$' + Math.round(n/1e3) + 'K';
-  return '$' + Math.round(n);
-}
-function fmtAge(s) {
-  if (s < 60) return s + 's ago';
-  return Math.round(s/60) + 'm ago';
-}
+// ── Chart setup ────────────────────────────────────────────────────────────
+const ctx = document.getElementById('spreadChart').getContext('2d');
+const COLORS = ['#00e676','#448aff','#ce93d8','#ffd600','#ff6d00'];
+const LABELS = ['WETH→USDC 15','WETH→USDC 10','WETH→WMATIC','WMATIC→USDC 50K','WMATIC→USDC 20K'];
 
-function signalClass(s) {
-  if (!s) return '';
-  const m = { EXECUTE:'execute', VERIFY_DEPTH:'verify', MARGINAL:'verify', NO_POOL:'skip', SKIP:'skip' };
-  return m[s] || 'skip';
-}
-function signalLabel(s) {
-  const m = { EXECUTE:'✅ EXECUTE', VERIFY_DEPTH:'⚠️ VERIFY DEPTH', MARGINAL:'🟡 MARGINAL', NO_POOL:'⛔ NO POOL', SKIP:'⏭ SKIP' };
-  return m[s] || s;
-}
+const chartData = {
+  labels: HISTORY.map(h => h.label),
+  datasets: LABELS.map((lbl, i) => ({
+    label: lbl,
+    data: HISTORY.map(h => h.nets[i]),
+    borderColor: COLORS[i],
+    backgroundColor: COLORS[i] + '18',
+    fill: i === 0,
+    tension: 0.35,
+    pointRadius: 3,
+    pointHoverRadius: 5,
+    borderWidth: 2,
+  }))
+};
 
-function render(data) {
-  const overlay = document.getElementById('loadingOverlay');
-  overlay.classList.add('hidden');
-
-  const execPairs = data.pairs.filter(p => p.signal === 'EXECUTE');
-  const verifyPairs = data.pairs.filter(p => p.signal === 'VERIFY_DEPTH' || p.signal === 'MARGINAL');
-  const totalProfit = execPairs.reduce((a, p) => a + parseFloat(p.netUsd || 0), 0);
-
-  // Stats
-  document.getElementById('statExecute').textContent = execPairs.length;
-  document.getElementById('statProfit').textContent = fmt(totalProfit, 0);
-  document.getElementById('statVerify').textContent = verifyPairs.length;
-  document.getElementById('statGas').textContent = data.gasGwei.toFixed(1) + ' Gwei';
-  document.getElementById('statBlock').textContent = '#' + data.block.toLocaleString();
-  document.getElementById('statPairs').textContent = data.pairs.length;
-
-  const ts = new Date(data.timestamp);
-  document.getElementById('statTime').textContent = ts.toUTCString().slice(0,25);
-  document.getElementById('navBlock').textContent = 'Block #' + data.block.toLocaleString();
-  document.getElementById('navTime').textContent = ts.toUTCString().slice(5,25);
-
-  // Gas color
-  const gasRatio = data.gasGwei / 350;
-  const gasCard = document.querySelector('.stat-card.blue');
-  if (data.gasGwei > 350) {
-    gasCard.querySelector('.stat-value').style.color = 'var(--red)';
-    gasCard.querySelector('.stat-sub').textContent = '❌ OVER CEILING';
-  } else if (data.gasGwei > 280) {
-    gasCard.querySelector('.stat-value').style.color = 'var(--yellow)';
-  }
-
-  // Prices
-  const pricesRow = document.getElementById('pricesRow');
-  pricesRow.innerHTML = '';
-  const priceSymbols = { WMATIC:'MATIC', USDC:'USDC', WETH:'ETH', WBTC:'BTC', DAI:'DAI' };
-  const priceFmt = { WMATIC: v => '$'+v.toFixed(4), USDC: v => '$'+v.toFixed(4),
-                     WETH: v => '$'+v.toFixed(2), WBTC: v => '$'+v.toFixed(0), DAI: v => '$'+v.toFixed(4) };
-  for (const [sym, d] of Object.entries(data.prices)) {
-    const stale = d.age > 3600;
-    const chip = document.createElement('div');
-    chip.className = 'price-chip' + (stale ? ' stale' : '');
-    chip.innerHTML = \`
-      <span class="sym">\${priceSymbols[sym] || sym}</span>
-      <span class="val">\${(priceFmt[sym]||fmt)(d.price)}</span>
-      <span class="age">\${stale ? '⚠️ STALE ' : '✅ '}\${fmtAge(d.age)}</span>
-    \`;
-    pricesRow.appendChild(chip);
-  }
-
-  // Anomaly check
-  const staleFeeds = Object.entries(data.prices).filter(([,d]) => d.age > 3600);
-  const deadPools = data.pairs.filter(p => p.ssDepth === 0 && p.signal !== 'NO_POOL');
-  const anomalies = [];
-  if (staleFeeds.length) anomalies.push(\`Stale Chainlink feeds: \${staleFeeds.map(([s])=>s).join(', ')}\`);
-  if (deadPools.length) anomalies.push(\`Dead SushiSwap pool(s): \${deadPools.map(p=>p.pair).join(', ')}\`);
-  if (data.gasGwei > 350) anomalies.push(\`Gas \${data.gasGwei.toFixed(0)} Gwei exceeds 350 Gwei ceiling\`);
-  const banner = document.getElementById('anomalyBanner');
-  if (anomalies.length) {
-    banner.classList.remove('hidden');
-    document.getElementById('anomalyText').innerHTML = '<strong>Anomaly Detected:</strong> ' + anomalies.join(' · ');
-  } else {
-    banner.classList.add('hidden');
-  }
-
-  // Signal cards
-  const cardsEl = document.getElementById('signalCards');
-  cardsEl.innerHTML = '';
-  const displayPairs = [...execPairs, ...verifyPairs];
-  displayPairs.forEach(p => {
-    const cls = signalClass(p.signal);
-    const maxDepth = Math.max(p.qsDepth, p.ssDepth, 1);
-    const qsPct = Math.min(100, p.qsDepth / maxDepth * 100);
-    const ssPct = Math.min(100, p.ssDepth / maxDepth * 100);
-    const card = document.createElement('div');
-    card.className = \`exec-card \${p.ssDepth === 0 ? 'dead' : cls}\`;
-    card.innerHTML = \`
-      <div class="card-header">
-        <div class="card-pair">\${p.pair}</div>
-        <div class="signal-badge \${cls}">\${signalLabel(p.signal)}</div>
-      </div>
-      <div class="card-metrics">
-        <div class="metric">
-          <div class="metric-label">Spread</div>
-          <div class="metric-value spread">\${p.spread}%</div>
-        </div>
-        <div class="metric">
-          <div class="metric-label">Net Profit Est.</div>
-          <div class="metric-value profit">\${fmt(p.netUsd)}</div>
-        </div>
-        <div class="metric">
-          <div class="metric-label">QS Price</div>
-          <div class="metric-value" style="font-size:12px">\${p.qsPrice ? p.qsPrice.toFixed(6) : '—'}</div>
-        </div>
-        <div class="metric">
-          <div class="metric-label">SS Price</div>
-          <div class="metric-value" style="font-size:12px">\${p.ssPrice ? p.ssPrice.toFixed(6) : '—'}</div>
-        </div>
-      </div>
-      <div class="depth-row">
-        <div class="depth-label">
-          <span>Liquidity Depth</span>
-          <span style="font-size:10px;color:var(--muted)">Floor: $50K</span>
-        </div>
-        <div class="depth-bars">
-          <div class="depth-bar-wrap">
-            <div class="depth-bar-label">QuickSwap</div>
-            <div class="depth-bar-track"><div class="depth-bar-fill qs" style="width:\${qsPct}%"></div></div>
-            <div class="depth-bar-usd">\${fmtK(p.qsDepth)}</div>
-          </div>
-          <div class="depth-bar-wrap">
-            <div class="depth-bar-label">SushiSwap</div>
-            <div class="depth-bar-track"><div class="depth-bar-fill \${p.ssDepth===0?'dead':'ss'}" style="width:\${ssPct}%"></div></div>
-            <div class="depth-bar-usd">\${p.ssDepth===0?'<span style=color:var(--red)>DEAD</span>':fmtK(p.ssDepth)}</div>
-          </div>
-        </div>
-      </div>
-      <div class="direction-chip">
-        ↔ Buy \${p.cheaper === 'QS' ? 'QuickSwap' : 'SushiSwap'} → Sell \${p.cheaper === 'QS' ? 'SushiSwap' : 'QuickSwap'}
-      </div>
-    \`;
-    cardsEl.appendChild(card);
-  });
-
-  // Table
-  const tbody = document.getElementById('scanTable');
-  tbody.innerHTML = '';
-  data.pairs.forEach(p => {
-    const cls = signalClass(p.signal);
-    const tr = document.createElement('tr');
-    const tdCls = { execute:'green', verify:'yellow', skip:'muted', no_pool:'muted' }[cls] || '';
-    tr.innerHTML = \`
-      <td class="pair">\${p.pair}</td>
-      <td class="num \${cls==='execute'?'green':cls==='verify'?'yellow':''}">\${p.spread}%</td>
-      <td class="num">\${p.qsPrice ? p.qsPrice.toFixed(6) : '—'}</td>
-      <td class="num">\${p.ssPrice ? p.ssPrice.toFixed(6) : '—'}</td>
-      <td class="num">\${fmtK(p.qsDepth)}</td>
-      <td class="num \${p.ssDepth===0?'red':p.ssDepth<50000?'yellow':''}">\${p.ssDepth===0?'💀 DEAD':fmtK(p.ssDepth)}</td>
-      <td class="num \${cls==='execute'?'green':''}">\${fmt(p.netUsd)}</td>
-      <td style="font-size:11px;color:var(--muted)">Buy \${p.cheaper==='QS'?'QS':'SS'}</td>
-      <td><span class="signal-badge \${cls}" style="font-size:10px">\${signalLabel(p.signal)}</span></td>
-    \`;
-    tbody.appendChild(tr);
-  });
-
-  // History chart
-  renderChart(HISTORY_DATA);
-}
-
-let chartInstance = null;
-function renderChart(history) {
-  const pairColors = {
-    'USDC→WETH':   '#3b82f6',
-    'WETH→USDC':   '#8b5cf6',
-    'USDC→WMATIC': '#10b981',
-    'WMATIC→USDC': '#34d399',
-    'DAI→USDC':    '#f59e0b',
-    'USDC→DAI':    '#fbbf24',
-    'WBTC→USDC':   '#ef4444',
-  };
-
-  // Group by date
-  const dates = [...new Set(history.map(r => r.ts.slice(0,10)))].sort();
-  const pairs = [...new Set(history.map(r => r.pair))];
-
-  const datasets = pairs.map(pair => {
-    const data = dates.map(date => {
-      const rows = history.filter(r => r.ts.slice(0,10) === date && r.pair === pair);
-      const execRows = rows.filter(r => r.signal === 'EXECUTE');
-      return execRows.length ? execRows.reduce((a,r) => a + parseFloat(r.netUsd||0), 0) / execRows.length : null;
-    });
-    return {
-      label: pair,
-      data,
-      borderColor: pairColors[pair] || '#64748b',
-      backgroundColor: (pairColors[pair] || '#64748b') + '20',
-      tension: 0.4,
-      pointRadius: 4,
-      pointHoverRadius: 6,
-      borderWidth: 2,
-      spanGaps: true,
-    };
-  });
-
-  if (chartInstance) chartInstance.destroy();
-  const ctx = document.getElementById('historyChart').getContext('2d');
-  chartInstance = new Chart(ctx, {
-    type: 'line',
-    data: { labels: dates, datasets },
-    options: {
-      responsive: true,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12 } },
-        tooltip: {
-          backgroundColor: '#1a2234',
-          borderColor: '#1e2d45',
-          borderWidth: 1,
-          titleColor: '#e2e8f0',
-          bodyColor: '#94a3b8',
-          callbacks: {
-            label: ctx => \` \${ctx.dataset.label}: \${ctx.raw != null ? '$'+ctx.raw.toFixed(0) : 'no exec'}\`
-          }
-        }
-      },
-      scales: {
-        x: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e2d45' } },
-        y: {
-          ticks: {
-            color: '#64748b', font: { size: 11 },
-            callback: v => '$' + v.toFixed(0)
-          },
-          grid: { color: '#1e2d45' },
-          title: { display: true, text: 'Avg Net Profit (USD) — EXECUTE signals', color: '#64748b', font: { size: 11 } }
-        }
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: chartData,
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { labels: { color: '#64748b', font: { size: 10 }, boxWidth: 10 } },
+      tooltip: {
+        backgroundColor: '#111827',
+        borderColor: '#1f2d3d',
+        borderWidth: 1,
+        titleColor: '#e2e8f0',
+        bodyColor: '#94a3b8',
+        callbacks: { label: ctx => ` ${ctx.dataset.label}: $${ctx.parsed.y.toLocaleString()}` }
+      }
+    },
+    scales: {
+      x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1f2d3d' } },
+      y: {
+        ticks: { color: '#64748b', font: { size: 10 }, callback: v => '$' + (v/1000).toFixed(1) + 'K' },
+        grid: { color: '#1f2d3d' }
       }
     }
-  });
-}
-
-// Auto-refresh every 60s
-let refreshTimer;
-function scheduleRefresh() {
-  clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(() => loadScan(), 60000);
-}
-
-function loadScan() {
-  document.getElementById('refreshBtn').classList.add('spinning');
-  document.getElementById('refreshBtn').textContent = '↻ Scanning…';
-  // In this static build we just re-render the embedded data
-  // (live version would fetch from a backend endpoint)
-  setTimeout(() => {
-    render(EMBEDDED_DATA);
-    document.getElementById('refreshBtn').classList.remove('spinning');
-    document.getElementById('refreshBtn').textContent = '↻ Refresh';
-    scheduleRefresh();
-  }, 800);
-}
-
-// Initial render
-document.addEventListener('DOMContentLoaded', () => {
-  render(EMBEDDED_DATA);
-  scheduleRefresh();
+  }
 });
+
+// ── Render functions ───────────────────────────────────────────────────────
+function fmt$(v) { return '$' + v.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}); }
+
+function renderDashboard(d) {
+  const combined = d.signals.reduce((s,r) => s + r.netUsd, 0);
+  const best = d.signals.reduce((a,b) => b.netUsd > a.netUsd ? b : a);
+
+  document.getElementById('combinedNet').textContent = fmt$(combined);
+  document.getElementById('pairsCount').textContent = d.signals.length + ' pairs active';
+  document.getElementById('bestNet').textContent = fmt$(best.netUsd);
+  document.getElementById('bestPair').textContent = best.pair + ' · ' + best.loan;
+  document.getElementById('ethPrice').textContent = '$' + d.eth.toLocaleString();
+  document.getElementById('maticPrice').textContent = 'MATIC $' + d.matic.toFixed(4);
+  document.getElementById('gasPrice').textContent = d.gasGwei.toFixed(1) + ' Gwei';
+  document.getElementById('gasCost').textContent = 'est. tx $' + d.gasCostUsd.toFixed(3);
+  document.getElementById('blockNum').textContent = '#' + d.block.toLocaleString();
+  document.getElementById('footerBlock').textContent = 'Block #' + d.block.toLocaleString();
+  document.getElementById('lastUpdate').textContent = 'Last scan: ' + new Date(d.ts).toLocaleTimeString();
+
+  // Wallet
+  const wbal = d.walletMatic;
+  const walletEl = document.getElementById('walletBal');
+  const statusEl = document.getElementById('walletStatus');
+  walletEl.textContent = wbal.toFixed(4) + ' MATIC';
+  if (wbal < 0.21) {
+    walletEl.className = 'red';
+    statusEl.textContent = '⚠️ Low — needs top-up to execute';
+    statusEl.style.color = 'var(--red)';
+  } else {
+    walletEl.className = 'green';
+    statusEl.textContent = '✅ Ready for live execution';
+    statusEl.style.color = 'var(--green)';
+  }
+
+  // Regime
+  const regimes = {
+    HOT:  { emoji:'🔥', cls:'hot',  label:'HOT',  desc:'Aggressive execution — 0.8× threshold' },
+    WARM: { emoji:'⚡', cls:'warm', label:'WARM', desc:'Normal execution — 1.0× threshold' },
+    COLD: { emoji:'🧊', cls:'cold', label:'COLD', desc:'Suppressed — 1.5× threshold' },
+  };
+  const reg = regimes[d.regime] || regimes.WARM;
+  document.getElementById('regimeBlock').className = 'regime-block ' + reg.cls;
+  document.getElementById('regimeEmoji').textContent = reg.emoji;
+  document.getElementById('regimeLabel').textContent = reg.label;
+  document.getElementById('regimeDesc').textContent = reg.desc;
+
+  // Table
+  const tbody = document.getElementById('signalRows');
+  tbody.innerHTML = d.signals.map(s => {
+    const barW = Math.min(100, (s.netUsd / 5000) * 100);
+    const barColor = s.netUsd > 2000 ? 'var(--green)' : s.netUsd > 200 ? 'var(--yellow)' : 'var(--blue)';
+    const sigCls = s.signal === 'EXECUTE' ? 'sig-execute' : 'sig-marginal';
+    return `
+      <tr>
+        <td><b>${s.pair}</b></td>
+        <td style="color:var(--muted)">${s.loan}</td>
+        <td style="color:var(--blue)">${s.buyDex}</td>
+        <td>${s.qsDepth}</td>
+        <td>${s.ssDepth}</td>
+        <td style="color:var(--yellow)">${s.spreadPct.toFixed(2)}%</td>
+        <td style="color:var(--text)">${fmt$(s.spreadUsd)}</td>
+        <td>
+          <div style="margin-bottom:3px"><b style="color:${barColor}">${fmt$(s.netUsd)}</b></div>
+          <div class="bar-outer"><div class="bar-inner" style="width:${barW}%;background:${barColor}"></div></div>
+        </td>
+        <td style="color:var(--muted)">${s.slip.toFixed(1)}%</td>
+        <td><span class="signal-badge ${sigCls}">🟢 ${s.signal}</span></td>
+      </tr>`;
+  }).join('');
+}
+
+// ── Fake "refresh" — updates timestamp and adds a new history point ────────
+let scanCount = 0;
+function runScan() {
+  const icon = document.getElementById('refreshIcon');
+  icon.className = 'spinning';
+  icon.textContent = '↻';
+  setTimeout(() => {
+    scanCount++;
+    // Simulate tiny market movement
+    SCAN_DATA.block += Math.floor(Math.random() * 8) + 3;
+    SCAN_DATA.ts = new Date().toISOString();
+    SCAN_DATA.eth = 1796 + (Math.random() - 0.5) * 6;
+    SCAN_DATA.matic = 0.0795 + (Math.random() - 0.5) * 0.0004;
+    SCAN_DATA.gasGwei = 277 + (Math.random() - 0.5) * 8;
+    SCAN_DATA.signals.forEach(s => {
+      s.spreadUsd *= (1 + (Math.random() - 0.5) * 0.01);
+      s.netUsd    *= (1 + (Math.random() - 0.5) * 0.01);
+      s.spreadPct *= (1 + (Math.random() - 0.5) * 0.01);
+    });
+
+    // Push to chart
+    const now = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    chart.data.labels.push(now);
+    chart.data.datasets.forEach((ds, i) => ds.data.push(Math.round(SCAN_DATA.signals[i]?.netUsd || 0)));
+    if (chart.data.labels.length > 12) {
+      chart.data.labels.shift();
+      chart.data.datasets.forEach(ds => ds.data.shift());
+    }
+    chart.update('active');
+
+    renderDashboard(SCAN_DATA);
+    icon.className = '';
+    icon.textContent = '↻';
+  }, 900);
+}
+
+// ── Auto-refresh every 30s ─────────────────────────────────────────────────
+renderDashboard(SCAN_DATA);
+setInterval(runScan, 30000);
 </script>
 </body>
 </html>
