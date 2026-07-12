@@ -63,3 +63,13 @@ export function readTodayLog(): OpportunityRecord[] {
     return [];
   }
 }
+
+// ── HMM fields (optional — added in v1.1.0) ──────────────────────────────────
+declare module "./opportunity-log" {
+  interface OpportunityRecord {
+    hmmRegime?:     string;
+    hmmConfidence?: number;
+    hmmMultiplier?: number;
+    dryRun?:        boolean;
+  }
+}
