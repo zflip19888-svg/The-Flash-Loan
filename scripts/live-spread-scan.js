@@ -26,7 +26,7 @@ const MIN_RESERVE_USD = 15_000;
 const MIN_EITHER_RESERVE_USD = 15_000;
 
 /** Minimum spread % to bother estimating profit */
-const MIN_SPREAD_PCT = 0.01;
+const MIN_SPREAD_PCT = 0.02;
 
 const QUICKSWAP_ROUTER  = "0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff";
 const SUSHISWAP_ROUTER  = "0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506";
@@ -41,16 +41,20 @@ const TOKENS = {
   WMATIC:{ addr: "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270", decimals: 18, symbol: "WMATIC", usdPrice: null },
   WETH:  { addr: "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619", decimals: 18, symbol: "WETH",  usdPrice: null },
   DAI:   { addr: "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063", decimals: 18, symbol: "DAI",   usdPrice: 1.0 },
-  WBTC:  { addr: "0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6", decimals: 8,  symbol: "WBTC",  usdPrice: null },
 };
 
+// Aave v3 Polygon: USDC borrowing DISABLED — all pairs now route via WETH borrow
+// WETH available: 9,440 ETH (~$17M) — fully open for flash loans
 const SCAN_PAIRS = [
-  { from: TOKENS.USDC,   to: TOKENS.WMATIC, amount: 10_000 },
-  { from: TOKENS.WMATIC, to: TOKENS.USDC,   amount: 20_000 },
-  { from: TOKENS.USDC,   to: TOKENS.WETH,   amount: 10_000 },
-  { from: TOKENS.WETH,   to: TOKENS.USDC,   amount: 5      },
-  { from: TOKENS.DAI,    to: TOKENS.USDC,   amount: 10_000 },
-  { from: TOKENS.USDC,   to: TOKENS.DAI,    amount: 10_000 },
+  // ── Native WETH pairs (primary — always enabled) ─────────────────────────
+  { from: TOKENS.WETH,   to: TOKENS.USDC,   amount: 10,     label: 'WETH→USDC (borrow WETH)' },
+  { from: TOKENS.WETH,   to: TOKENS.USDC,   amount: 15,     label: 'WETH→USDC (15 ETH)' },
+  // ── WETH-routed WMATIC arb ────────────────────────────────────────────────
+  // Borrow WETH → swap to USDC on QS → swap to WMATIC on SS → net spread
+  { from: TOKENS.WETH,   to: TOKENS.WMATIC, amount: 10,     label: 'WETH→USDC→WMATIC (via WETH borrow)' },
+  // ── WMATIC native ────────────────────────────────────────────────────────
+  { from: TOKENS.WMATIC, to: TOKENS.USDC,   amount: 20_000, label: 'WMATIC→USDC' },
+  { from: TOKENS.WMATIC, to: TOKENS.USDC,   amount: 50_000, label: 'WMATIC→USDC (50K)' },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -187,7 +191,7 @@ async function main() {
               `   BTC $${btcUsd?.toFixed(0) ?? "?"}`+
               `   Gas ${gasPriceGwei.toFixed(1)} Gwei`+
               `   Est. tx cost ${gasCostUsd ? "$"+gasCostUsd.toFixed(3) : "?"}`);
-  console.log(`  Liquidity filter: skip if depth < $${MIN_RESERVE_USD.toLocaleString()} on either DEX side`);
+  console.log(`  Liquidity filter: skip pair if BOTH DEXes < $${MIN_RESERVE_USD.toLocaleString()} | phantom guard on stablecoin spreads > 20%`);
   console.log("─".repeat(120));
 
   const COL = [20, 14, 12, 14, 14, 12, 11, 10, 13];
@@ -288,23 +292,42 @@ async function main() {
       ? spreadUsd - gasCostUsd - aaveFeeUsd
       : null;
 
-    // ── 7. Depth-adjusted viability ────────────────────────────────────────────
-    // Even if spread looks good, flag if the thinner DEX has < MIN_RESERVE_USD
-    const depthWarning = (qsDepthUsd < MIN_RESERVE_USD || ssDepthUsd < MIN_RESERVE_USD)
-      ? " ⚠️ shallow" : "";
+    // ── 7. Slippage estimation ──────────────────────────────────────────────────
+    // Estimate slippage as trade size / pool depth — rough but useful
+    const tradeUsd      = priceIn ? amount * priceIn : 0;
+    const sellSideDex   = (qsF && ssF && qsF > ssF) ? ssDepthUsd : qsDepthUsd;
+    const slippageEst   = sellSideDex > 0 ? (tradeUsd / sellSideDex) * 100 : 99;
+    const slippageCost  = spreadUsd !== null ? spreadUsd * (slippageEst / 100) : 0;
 
-    // Signal
+    // Adjust net profit for estimated slippage
+    const netProfitAdj  = (netProfit !== null) ? netProfit - slippageCost : null;
+
+    // ── 8. Phantom spread guard ──────────────────────────────────────────────
+    // Stablecoin pairs (DAI↔USDC) with >20% spread are almost certainly phantom
+    const isStablePair = (
+      (from.symbol === "DAI" && to.symbol === "USDC") ||
+      (from.symbol === "USDC" && to.symbol === "DAI")
+    );
+    const isPhantom = isStablePair && spreadPct !== null && spreadPct > 20;
+
+    // ── 9. Tiered signal classification ──────────────────────────────────────
+    const minDepthSide = Math.min(qsDepthUsd, ssDepthUsd);
+    const depthOk      = minDepthSide >= MIN_RESERVE_USD;
+    const depthWarning = !depthOk ? ` ⚠️ thin ($${(minDepthSide/1000).toFixed(0)}K)` : "";
+
     let signal;
-    if (depthWarning && netProfit !== null && netProfit > 5) {
-      signal = "🟡 VERIFY DEPTH";
-    } else if (netProfit !== null && netProfit > 5) {
+    if (isPhantom) {
+      signal = "👻 PHANTOM";
+    } else if (depthOk && netProfitAdj !== null && netProfitAdj > 2) {
       signal = "🟢 EXECUTE";
-    } else if (netProfit !== null && netProfit > 0) {
+    } else if (!depthOk && netProfitAdj !== null && netProfitAdj > 2) {
+      signal = "🟡 LOW DEPTH";
+    } else if (netProfitAdj !== null && netProfitAdj > 0) {
       signal = "🟡 MARGINAL";
-    } else if (netProfit !== null) {
+    } else if (netProfitAdj !== null) {
       signal = "🔴 UNPROFITABLE";
     } else if (spreadPct && spreadPct > 1) {
-      signal = depthWarning ? "🟡 VERIFY DEPTH" : "🟡 CHECK";
+      signal = depthOk ? "🟡 CHECK" : "🟡 LOW DEPTH";
     } else {
       signal = "—";
     }
@@ -313,6 +336,7 @@ async function main() {
 
     results.push({
       pair: pairLabel, amount, signal, spreadPct, spreadUsd, netProfit,
+      netProfitAdj, slippageEst, isPhantom,
       qsDepthUsd, ssDepthUsd, cheaperDex, qsF, ssF,
     });
 
@@ -324,7 +348,7 @@ async function main() {
       pad(ssF !== null ? ssF.toFixed(4) : "N/A",                            COL[4]) +
       pad(spreadPct !== null ? spreadPct.toFixed(4)+"%" : "N/A",            COL[5]) +
       pad(spreadUsd !== null ? "$"+spreadUsd.toFixed(2) : "N/A",            COL[6]) +
-      pad(netProfit !== null ? "$"+netProfit.toFixed(2) : "N/A",            COL[7]) +
+      pad(netProfitAdj !== null ? "$"+netProfitAdj.toFixed(2) : "N/A",      COL[7]) +
       signal + depthWarning
     );
   }
@@ -335,28 +359,35 @@ async function main() {
   console.log("─".repeat(60));
 
   const executable  = results.filter(r => r.signal === "🟢 EXECUTE");
-  const verifyDepth = results.filter(r => r.signal === "🟡 VERIFY DEPTH");
+  const lowDepth    = results.filter(r => r.signal === "🟡 LOW DEPTH");
   const marginal    = results.filter(r => r.signal === "🟡 MARGINAL");
+  const phantom     = results.filter(r => r.signal === "👻 PHANTOM");
 
   if (executable.length) {
-    console.log("  🟢 Execute:");
+    console.log("  🟢 Execute now:");
     for (const r of executable) {
-      console.log(`     ${pad(r.pair,18)} cheaper: ${r.cheaperDex}   spread $${r.spreadUsd?.toFixed(2)}   net ~$${r.netProfit?.toFixed(2)}   QS depth $${(r.qsDepthUsd/1000).toFixed(0)}K / SS $${(r.ssDepthUsd/1000).toFixed(0)}K`);
+      console.log(`     ${pad(r.pair,18)} cheaper: ${r.cheaperDex}   spread $${r.spreadUsd?.toFixed(2)}   net ~$${r.netProfitAdj?.toFixed(2)} (slip ${r.slippageEst?.toFixed(1)}%)   QS $${(r.qsDepthUsd/1000).toFixed(0)}K / SS $${(r.ssDepthUsd/1000).toFixed(0)}K`);
     }
   }
-  if (verifyDepth.length) {
-    console.log("  🟡 Verify depth before executing:");
-    for (const r of verifyDepth) {
-      console.log(`     ${pad(r.pair,18)} spread $${r.spreadUsd?.toFixed(2)}   QS $${(r.qsDepthUsd/1000).toFixed(0)}K / SS $${(r.ssDepthUsd/1000).toFixed(0)}K`);
+  if (lowDepth.length) {
+    console.log("  🟡 Promising — depth below threshold:");
+    for (const r of lowDepth) {
+      console.log(`     ${pad(r.pair,18)} spread $${r.spreadUsd?.toFixed(2)}   adj net ~$${r.netProfitAdj?.toFixed(2)}   QS $${(r.qsDepthUsd/1000).toFixed(0)}K / SS $${(r.ssDepthUsd/1000).toFixed(0)}K`);
     }
   }
   if (marginal.length) {
-    console.log("  🟡 Marginal:");
+    console.log("  🟡 Marginal (adj for slippage):");
     for (const r of marginal) {
-      console.log(`     ${pad(r.pair,18)} net ~$${r.netProfit?.toFixed(2)}`);
+      console.log(`     ${pad(r.pair,18)} net ~$${r.netProfitAdj?.toFixed(2)}   slip est ${r.slippageEst?.toFixed(1)}%`);
     }
   }
-  if (!executable.length && !verifyDepth.length && !marginal.length) {
+  if (phantom.length) {
+    console.log("  👻 Phantom spreads (stablecoin >20% — pool imbalance, not real arb):");
+    for (const r of phantom) {
+      console.log(`     ${pad(r.pair,18)} spread ${r.spreadPct?.toFixed(1)}% — SS $${(r.ssDepthUsd/1000).toFixed(0)}K depth likely empty`);
+    }
+  }
+  if (!executable.length && !lowDepth.length && !marginal.length) {
     console.log("  🔴 No profitable opportunities at current spreads and gas.");
   }
 
