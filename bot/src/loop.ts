@@ -33,6 +33,9 @@ import {
   RETRY_BASE_DELAY_MS,
   FLASH_LOAN_ABI,
   PRICE_ORACLE_ABI,
+  MIN_POOL_DEPTH_USD,
+  DEAD_POOL_FLOOR_USD,
+  STABLECOIN_MAX_SPREAD_PCT,
 } from "./config";
 import { logInfo, logWarn, logError, logDebug } from "./logger";
 import { NonceManager }                          from "./nonce-manager";
@@ -44,7 +47,6 @@ import { SpreadHMM, HMMState, Regime }                        from "./hmm";
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const MIN_POOL_DEPTH_USD     = 15_000;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Aave v3 USDC borrow disabled — WETH routing
@@ -291,11 +293,14 @@ export class ScanLoop {
 
     let hmmState: HMMState | null = null;
     if (bestResult) {
-      const spreadPct = bestResult.spreadUsd / Math.max(bestResult.qsDepthUsd, 1) * 100;
+      // Spread as % of loan notional — more meaningful than % of pool depth
+      const loanNotionalEst = parseFloat(formatUnits(bestResult.pair.loanAmount, 18)) * (maticUsd * 10 || 1800);
+      const spreadPct = bestResult.spreadUsd / Math.max(loanNotionalEst, 100) * 100;
+      const prevRegime = this.lastHMMState?.regime ?? null;
       hmmState = this.hmm.update(spreadPct, bestResult.pair.name);
       this.lastHMMState = hmmState;
 
-      if (hmmState.regime !== (this.lastHMMState?.regime ?? "COLD") || hmmState.consecutiveTicks === 1) {
+      if (hmmState.regime !== prevRegime || hmmState.consecutiveTicks === 1) {
         logInfo("HMM regime", {
           regime:       hmmState.regime,
           confidence:   hmmState.confidence.toFixed(3),
@@ -322,10 +327,11 @@ export class ScanLoop {
 
     for (const r of viable) {
       this.sessionOpps++;
-      const _signal = r.viable ? "EXECUTE" : "VERIFY_DEPTH";
-      const _note   = r.ssDepthUsd < MIN_POOL_DEPTH_USD
-                        ? (r.ssDepthUsd === 0 ? "SushiSwap dead pool" : "SushiSwap shallow")
-                        : r.qsDepthUsd < MIN_POOL_DEPTH_USD ? "QuickSwap shallow" : undefined;
+      const _signal: "EXECUTE" | "VERIFY_DEPTH" | "MARGINAL" =
+        r.viable ? "EXECUTE" : "VERIFY_DEPTH";
+      const _note = r.ssDepthUsd < MIN_POOL_DEPTH_USD
+        ? "SushiSwap shallow"
+        : r.qsDepthUsd < MIN_POOL_DEPTH_USD ? "QuickSwap shallow" : undefined;
       const record: OpportunityRecord = {
         ts:           new Date().toISOString(),
         block:        blockNumber,
@@ -354,9 +360,11 @@ export class ScanLoop {
         pair:        r.pair.name,
         net:         `$${r.netProfitUsd.toFixed(2)}`,
         spread:      `$${r.spreadUsd.toFixed(2)}`,
+        spreadPct:   `${(r.spreadUsd / Math.max(r.qsDepthUsd, 1) * 100).toFixed(2)}%`,
         cheaper:     dexLabel(r.cheaperDex),
         qsDepth:     `$${(r.qsDepthUsd / 1000).toFixed(0)}K`,
         ssDepth:     `$${(r.ssDepthUsd / 1000).toFixed(0)}K`,
+        regime:      hmmState?.regime ?? "?",
         source:      r.source,
         dryRun:      DRY_RUN || !this.flashLoan,
       });
@@ -422,8 +430,16 @@ export class ScanLoop {
         this._depth(this.ssFactory, pair.tokenIn, pair.tokenOut, inDec, tokenInUsd),
       ]);
 
+      // ── Hard dead-pool guard — ZERO or near-zero liquidity always rejected ──
+      if (qsDep < DEAD_POOL_FLOOR_USD || ssDep < DEAD_POOL_FLOOR_USD) {
+        logDebug(`Dead pool skip — ${pair.name}`, {
+          qs: qsDep.toFixed(0), ss: ssDep.toFixed(0), floor: DEAD_POOL_FLOOR_USD,
+        });
+        return null;
+      }
+      // ── Normal depth floor ────────────────────────────────────────────────
       if (Math.min(qsDep, ssDep) < MIN_POOL_DEPTH_USD) {
-        const _note = ssDep === 0 ? "SushiSwap dead pool" : "shallow pool";
+        const _note = ssDep < MIN_POOL_DEPTH_USD ? "SushiSwap shallow" : "QuickSwap shallow";
         logDebug(`Depth skip — ${pair.name} (${_note})`, {
           qs: qsDep.toFixed(0), ss: ssDep.toFixed(0), required: MIN_POOL_DEPTH_USD,
         });
@@ -464,6 +480,21 @@ export class ScanLoop {
       }
 
       if (spread === 0n) return null;
+
+      // ── Stablecoin phantom spread guard ────────────────────────────────────
+      // If the pair is stablecoin↔stablecoin and spread > 20%, it's pool imbalance, not real arb
+      if (pair.isStablecoin) {
+        const rawSpreadPct = parseFloat(formatUnits(spread, decimalsOf(pair.tokenOut))) /
+          Math.max(parseFloat(formatUnits(
+            qsOut > ssOut ? qsOut : ssOut, decimalsOf(pair.tokenOut)
+          )), 1) * 100;
+        if (rawSpreadPct > STABLECOIN_MAX_SPREAD_PCT) {
+          logDebug(`Phantom spread skip — ${pair.name}`, {
+            spreadPct: rawSpreadPct.toFixed(2), threshold: STABLECOIN_MAX_SPREAD_PCT,
+          });
+          return null;
+        }
+      }
 
       // ── Profit calc ────────────────────────────────────────────────────────
       const spreadUsd    = parseFloat(formatUnits(spread, outDec)) * (tokenOutUsd || 1);

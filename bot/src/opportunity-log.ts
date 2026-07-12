@@ -29,10 +29,15 @@ export interface OpportunityRecord {
   sellDex?:      string;   // which DEX to sell on (expensive)
   cheaperDex:    string;
   executed:      boolean;
-  note?:         string;   // e.g. "SushiSwap dead pool", "SushiSwap shallow"
+  note?:         string;
   txHash?:       string;
   txStatus?:     "success" | "reverted" | "pending";
   error?:        string;
+  // HMM fields (v1.1.0+)
+  hmmRegime?:     string;
+  hmmConfidence?: number;
+  hmmMultiplier?: number;
+  dryRun?:        boolean;
 }
 
 const LOG_DIR = path.resolve(__dirname, "../../logs");
@@ -64,12 +69,16 @@ export function readTodayLog(): OpportunityRecord[] {
   }
 }
 
-// ── HMM fields (optional — added in v1.1.0) ──────────────────────────────────
-declare module "./opportunity-log" {
-  interface OpportunityRecord {
-    hmmRegime?:     string;
-    hmmConfidence?: number;
-    hmmMultiplier?: number;
-    dryRun?:        boolean;
+/** Read records from a specific date (YYYY-MM-DD). */
+export function readLogForDate(date: string): OpportunityRecord[] {
+  try {
+    const p = path.join(LOG_DIR, `opportunities-${date}.jsonl`);
+    const raw = fs.readFileSync(p, "utf8");
+    return raw
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as OpportunityRecord);
+  } catch {
+    return [];
   }
 }

@@ -11,7 +11,6 @@
  *   npm run start                  — live execution (requires full .env)
  */
 
-
 // Load .env locally if present — Railway injects vars directly so this is a no-op in production
 try { require("dotenv").config({ path: require("path").resolve(__dirname, "../../.env") }); } catch (_) {}
 
@@ -38,7 +37,6 @@ function optionalEnv(key: string, fallback = ""): string {
 export const ENV = {
   POLYGON_RPC_URL:      requireEnv("POLYGON_RPC_URL"),
   POLYGON_WS_URL:       optionalEnv("POLYGON_WS_URL"),
-  // Optional — only needed for live execution
   PRIVATE_KEY:          optionalEnv("PRIVATE_KEY"),
   FLASH_LOAN_ADDRESS:   optionalEnv("FLASH_LOAN_ADDRESS",   "0xBafc19Fd23714bD2F3256C20a6036a5B31A9DbD8"),
   PRICE_ORACLE_ADDRESS: optionalEnv("PRICE_ORACLE_ADDRESS", "0xbBaf624eDe7A57141ADFF779dBf474c9527faD9f"),
@@ -56,65 +54,69 @@ export const ESTIMATED_GAS_UNITS = 750_000;
 export const MAX_RETRIES         = 3;
 export const RETRY_BASE_DELAY_MS = 1_000;
 
+/** Hard floor: a pool depth of ZERO on either side → always skip, regardless of depth setting */
+export const DEAD_POOL_FLOOR_USD = 1_000;   // anything below $1K is effectively dead
+
+/** Minimum depth required on EACH DEX side to be scannable */
+export const MIN_POOL_DEPTH_USD  = 15_000;
+
+/** Phantom spread guard for stablecoin pairs: skip if spread > this % */
+export const STABLECOIN_MAX_SPREAD_PCT = 20;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Token pairs
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface TokenPair {
-  name:       string;
-  tokenIn:    string;
-  tokenOut:   string;
-  loanAmount: bigint;
+  name:            string;
+  tokenIn:         string;
+  tokenOut:        string;
+  loanAmount:      bigint;
+  isStablecoin?:   boolean;   // true → apply phantom spread guard
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Flash loan asset routing
 // NOTE: Aave v3 Polygon has USDC borrowing DISABLED as of 2026-07-11.
 //       All USDC-based pairs now borrow WETH and route through WETH→USDC
-//       swap before the arbitrage leg. WETH borrowing is fully enabled
-//       with 9,440 ETH ($17M) available.
+//       swap before the arbitrage leg.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const TOKEN_PAIRS: TokenPair[] = [
-  // ── WETH-borrowed pairs (Aave v3 WETH borrowing enabled) ──────────────────
-
-  // Borrow WETH → swap to USDC on QS → swap to WMATIC on SS → repay WETH
+  // ── WETH/USDC — primary spread, highest liquidity ─────────────────────────
   {
-    name:        "WETH→USDC→WMATIC",
-    tokenIn:     "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619", // borrow WETH
-    tokenOut:    "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270", // end in WMATIC
-    loanAmount:  15n * 10n ** 18n,                             // 15 WETH (~$27K)
-  },
-
-  // Borrow WETH → swap to USDC on QS → swap to WMATIC on SS → swap back to WETH
-  {
-    name:        "WETH/USDC",
-    tokenIn:     "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619", // borrow WETH
-    tokenOut:    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", // end in USDC
-    loanAmount:  15n * 10n ** 18n,                             // 15 WETH (~$27K)
-  },
-
-  // ── Native WETH pairs (unchanged — always worked) ─────────────────────────
-
-  {
-    name:        "WETH/USDC",
+    name:        "WETH→USDC (15)",
     tokenIn:     "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619",
     tokenOut:    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
-    loanAmount:  15n * 10n ** 18n,
+    loanAmount:  15n * 10n ** 18n,                             // 15 WETH (~$27K)
   },
   {
-    name:        "USDC/WETH",
-    tokenIn:     "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619", // borrow WETH, swap to USDC first
-    tokenOut:    "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619",
-    loanAmount:  20n * 10n ** 18n,                             // 20 WETH (~$36K ≈ $33K USDC)
+    name:        "WETH→USDC (10)",
+    tokenIn:     "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619",
+    tokenOut:    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+    loanAmount:  10n * 10n ** 18n,                             // 10 WETH (~$18K) — conservative
   },
 
-  // ── WMATIC pairs via WETH borrow ───────────────────────────────────────────
+  // ── WETH/WMATIC — second-best spread ──────────────────────────────────────
   {
-    name:        "WMATIC/USDC",
+    name:        "WETH→WMATIC",
+    tokenIn:     "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619",
+    tokenOut:    "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
+    loanAmount:  10n * 10n ** 18n,
+  },
+
+  // ── WMATIC/USDC — high-volume, lower spread ───────────────────────────────
+  {
+    name:        "WMATIC→USDC (50K)",
     tokenIn:     "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
     tokenOut:    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
-    loanAmount:  75_000n * 10n ** 18n,
+    loanAmount:  50_000n * 10n ** 18n,
+  },
+  {
+    name:        "WMATIC→USDC (20K)",
+    tokenIn:     "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
+    tokenOut:    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+    loanAmount:  20_000n * 10n ** 18n,
   },
 ];
 
