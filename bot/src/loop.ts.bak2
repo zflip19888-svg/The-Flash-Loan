@@ -45,16 +45,6 @@ import { SpreadHMM, HMMState, Regime }                        from "./hmm";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const MIN_POOL_DEPTH_USD     = 15_000;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Aave v3 USDC borrow disabled — WETH routing
-// All pairs that previously borrowed USDC now borrow WETH and pre-swap
-// to USDC before the arbitrage leg. executeOperation() on the contract
-// detects the 3-hop path via the encoded params.
-// ─────────────────────────────────────────────────────────────────────────────
-const WETH   = "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619";
-const USDC   = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
-const WMATIC = "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270";
 const STATUS_INTERVAL_BLOCKS = 50;
 const DRY_RUN                = process.env.DRY_RUN === "true";
 

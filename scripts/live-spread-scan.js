@@ -43,13 +43,18 @@ const TOKENS = {
   DAI:   { addr: "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063", decimals: 18, symbol: "DAI",   usdPrice: 1.0 },
 };
 
+// Aave v3 Polygon: USDC borrowing DISABLED — all pairs now route via WETH borrow
+// WETH available: 9,440 ETH (~$17M) — fully open for flash loans
 const SCAN_PAIRS = [
-  { from: TOKENS.USDC,   to: TOKENS.WMATIC, amount: 10_000 },
-  { from: TOKENS.WMATIC, to: TOKENS.USDC,   amount: 20_000 },
-  { from: TOKENS.USDC,   to: TOKENS.WETH,   amount: 10_000 },
-  { from: TOKENS.WETH,   to: TOKENS.USDC,   amount: 5      },
-  { from: TOKENS.DAI,    to: TOKENS.USDC,   amount: 10_000 },
-  { from: TOKENS.USDC,   to: TOKENS.DAI,    amount: 10_000 },
+  // ── Native WETH pairs (primary — always enabled) ─────────────────────────
+  { from: TOKENS.WETH,   to: TOKENS.USDC,   amount: 10,     label: 'WETH→USDC (borrow WETH)' },
+  { from: TOKENS.WETH,   to: TOKENS.USDC,   amount: 15,     label: 'WETH→USDC (15 ETH)' },
+  // ── WETH-routed WMATIC arb ────────────────────────────────────────────────
+  // Borrow WETH → swap to USDC on QS → swap to WMATIC on SS → net spread
+  { from: TOKENS.WETH,   to: TOKENS.WMATIC, amount: 10,     label: 'WETH→USDC→WMATIC (via WETH borrow)' },
+  // ── WMATIC native ────────────────────────────────────────────────────────
+  { from: TOKENS.WMATIC, to: TOKENS.USDC,   amount: 20_000, label: 'WMATIC→USDC' },
+  { from: TOKENS.WMATIC, to: TOKENS.USDC,   amount: 50_000, label: 'WMATIC→USDC (50K)' },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
