@@ -1,0 +1,53 @@
+{
+  "updatedAt": "2026-07-16T12:50:00.000Z",
+  "status": "STANDBY",
+  "lastBlock": 90315600,
+  "lastBlockAt": "2026-07-16T12:50:00.000Z",
+  "rpcAlive": 12,
+  "rpcTotal": 14,
+  "rpcHealth": [
+    {"url": "https://polygon-rpc.com", "alive": true, "latencyMs": 88, "isWs": false, "failCount": 0},
+    {"url": "https://rpc.ankr.com/polygon", "alive": true, "latencyMs": 142, "isWs": false, "failCount": 0},
+    {"url": "https://polygon-bor-rpc.publicnode.com", "alive": true, "latencyMs": 105, "isWs": false, "failCount": 0},
+    {"url": "https://1rpc.io/matic", "alive": true, "latencyMs": 220, "isWs": false, "failCount": 0},
+    {"url": "https://polygon.llamarpc.com", "alive": true, "latencyMs": 178, "isWs": false, "failCount": 0},
+    {"url": "https://polygon.drpc.org", "alive": true, "latencyMs": 156, "isWs": false, "failCount": 0},
+    {"url": "https://polygon.blockpi.network/v1/rpc/public", "alive": true, "latencyMs": 96, "isWs": false, "failCount": 0},
+    {"url": "https://polygon.publicnode.com", "alive": true, "latencyMs": 113, "isWs": false, "failCount": 0},
+    {"url": "https://polygon-bor.publicnode.com", "alive": true, "latencyMs": 121, "isWs": false, "failCount": 0},
+    {"url": "https://rpc-polygon.cryptexia.com", "alive": true, "latencyMs": 312, "isWs": false, "failCount": 0},
+    {"url": "https://polygon.public-rpc.com", "alive": true, "latencyMs": 168, "isWs": false, "failCount": 0},
+    {"url": "https://polygon-mainnet.public.blastapi.io", "alive": true, "latencyMs": 184, "isWs": false, "failCount": 0},
+    {"url": "wss://polygon-bor-rpc.publicnode.com", "alive": false, "latencyMs": 9999, "isWs": true, "failCount": 2},
+    {"url": "wss://polygon-rpc.com", "alive": false, "latencyMs": 9999, "isWs": true, "failCount": 3}
+  ],
+  "wsSubscriptions": 0,
+  "hmmRegime": "HOT",
+  "hmmConfidence": 0.84,
+  "activeRelay": "fastlane",
+  "relayStats": {
+    "fastlane":  {"attempts": 0, "successes": 0, "failures": 0},
+    "merkle":    {"attempts": 0, "successes": 0, "failures": 0},
+    "flashbots": {"attempts": 0, "successes": 0, "failures": 0},
+    "public":    {"attempts": 0, "successes": 0, "failures": 0}
+  },
+  "lastGasBid": {
+    "baseFee": 28.4,
+    "priorityFee": 35.0,
+    "totalGwei": 63.4,
+    "competitorEstimate": 30.0,
+    "capped": false
+  },
+  "gasHistory": [
+    {"blockNumber": 90315580, "baseFeeGwei": 25.2, "priorityFeeGwei": 28, "gasUsedRatio": 0.62},
+    {"blockNumber": 90315585, "baseFeeGwei": 26.1, "priorityFeeGwei": 30, "gasUsedRatio": 0.68},
+    {"blockNumber": 90315590, "baseFeeGwei": 27.5, "priorityFeeGwei": 33, "gasUsedRatio": 0.74},
+    {"blockNumber": 90315595, "baseFeeGwei": 28.0, "priorityFeeGwei": 29, "gasUsedRatio": 0.66},
+    {"blockNumber": 90315600, "baseFeeGwei": 28.4, "priorityFeeGwei": 31, "gasUsedRatio": 0.71}
+  ],
+  "lastOpportunityAt": "2026-07-15T15:12:58.000Z",
+  "maticPrice": 0.0838,
+  "ethPrice": 1931,
+  "btcPrice": 65370,
+  "configReloadRequired": false
+}

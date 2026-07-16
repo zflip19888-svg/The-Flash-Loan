@@ -3,389 +3,760 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Flash Loan Arb — Live Dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<title>FLASH//ARB — MEV Search Terminal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+    "htm": "https://esm.sh/htm@3.1.1",
+    "preact": "https://esm.sh/preact@10.19.3"
+  }
+}
+</script>
 <style>
   :root {
-    --bg:       #0a0e1a;
-    --surface:  #111827;
-    --border:   #1f2d3d;
-    --green:    #00e676;
-    --yellow:   #ffd600;
-    --red:      #ff1744;
-    --blue:     #448aff;
-    --purple:   #ce93d8;
-    --text:     #e2e8f0;
-    --muted:    #64748b;
-    --hot:      #ff6d00;
+    --bg-0: #050709;
+    --bg-1: #0a0d12;
+    --bg-2: #0f1318;
+    --bg-3: #141921;
+    --border: #1d232c;
+    --border-hot: #2a3543;
+    --green: #00ff9c;
+    --green-dim: #00b06b;
+    --green-bg: rgba(0,255,156,0.06);
+    --red: #ff2e4f;
+    --red-dim: #b32038;
+    --red-bg: rgba(255,46,79,0.08);
+    --amber: #ffb300;
+    --amber-bg: rgba(255,179,0,0.08);
+    --blue: #4ab3ff;
+    --blue-bg: rgba(74,179,255,0.08);
+    --purple: #b78aff;
+    --text: #d4dde8;
+    --text-dim: #6b7785;
+    --text-mute: #475160;
+    --mono: 'JetBrains Mono', 'IBM Plex Mono', monospace;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px; }
+  html, body {
+    background: var(--bg-0); color: var(--text);
+    font-family: var(--mono); font-size: 12px;
+    min-height: 100vh; -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0;
+    background:
+      radial-gradient(ellipse at top right, rgba(0,255,156,0.025), transparent 50%),
+      radial-gradient(ellipse at bottom left, rgba(74,179,255,0.02), transparent 50%);
+    pointer-events: none; z-index: 0;
+  }
+  #root { position: relative; z-index: 1; }
 
   /* ── Header ── */
-  header {
+  .topbar {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 16px 24px; border-bottom: 1px solid var(--border);
-    background: var(--surface);
+    padding: 10px 18px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, var(--bg-1), var(--bg-2));
+    backdrop-filter: blur(8px);
   }
-  .logo { font-size: 17px; font-weight: 700; letter-spacing: .5px; color: var(--green); }
-  .logo span { color: var(--muted); font-weight: 400; }
-  .live-badge {
-    display: flex; align-items: center; gap: 6px;
-    background: rgba(0,230,118,.08); border: 1px solid var(--green);
-    border-radius: 20px; padding: 4px 12px; font-size: 11px; color: var(--green);
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand .logo {
+    font-size: 16px; font-weight: 700; letter-spacing: 1px;
+    background: linear-gradient(90deg, var(--green), var(--blue));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
   }
-  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 1.4s infinite; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
-  .last-update { color: var(--muted); font-size: 11px; }
+  .brand .sep { color: var(--text-mute); font-size: 11px; }
+  .brand .sub { color: var(--text-dim); font-size: 10px; letter-spacing: 2px; text-transform: uppercase; }
+  .topbar-right { display: flex; align-items: center; gap: 18px; font-size: 11px; }
+  .ticker { display: flex; gap: 16px; }
+  .ticker .item { color: var(--text-dim); }
+  .ticker .item b { color: var(--text); font-weight: 500; }
+  .ticker .item.up b { color: var(--green); }
+  .ticker .item.down b { color: var(--red); }
+  .clock { color: var(--green); font-weight: 600; letter-spacing: 1px; font-variant-numeric: tabular-nums; }
 
-  /* ── Layout ── */
-  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 16px 24px; }
-  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 24px 16px; }
-  .grid-3 { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; padding: 0 24px 16px; }
-
-  /* ── Cards ── */
-  .card {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 10px; padding: 16px;
+  /* ── Status strip ── */
+  .status-strip {
+    display: flex; align-items: stretch; border-bottom: 1px solid var(--border);
+    background: var(--bg-1);
   }
-  .card-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 8px; }
-  .card-value { font-size: 26px; font-weight: 700; }
-  .card-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
-  .green { color: var(--green); }
-  .yellow { color: var(--yellow); }
-  .red { color: var(--red); }
-  .blue { color: var(--blue); }
-  .hot { color: var(--hot); }
-
-  /* ── Table ── */
-  .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; }
-  th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--border); }
-  td { padding: 10px 10px; border-bottom: 1px solid rgba(31,45,61,.6); font-size: 12px; white-space: nowrap; }
-  tr:hover td { background: rgba(255,255,255,.02); }
-  .signal-badge {
-    display: inline-block; padding: 2px 8px; border-radius: 4px;
-    font-size: 10px; font-weight: 700; letter-spacing: .5px;
+  .status-cell {
+    flex: 1; padding: 10px 16px; border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 4px;
   }
-  .sig-execute { background: rgba(0,230,118,.12); color: var(--green); border: 1px solid rgba(0,230,118,.3); }
-  .sig-marginal { background: rgba(255,214,0,.10); color: var(--yellow); border: 1px solid rgba(255,214,0,.3); }
-  .bar-outer { background: rgba(255,255,255,.06); border-radius: 3px; height: 5px; min-width: 80px; }
-  .bar-inner { border-radius: 3px; height: 5px; transition: width .5s; }
-
-  /* ── HMM Regime ── */
-  .regime-hot  { color: var(--hot); }
-  .regime-warm { color: var(--yellow); }
-  .regime-cold { color: var(--blue); }
-  .regime-block {
-    display: flex; align-items: center; gap: 10px;
-    padding: 10px 14px; border-radius: 8px;
-    border: 1px solid; margin-bottom: 12px;
+  .status-cell:last-child { border-right: none; }
+  .status-cell .label {
+    font-size: 9px; color: var(--text-mute); text-transform: uppercase;
+    letter-spacing: 1.5px;
   }
-  .regime-block.hot  { background: rgba(255,109,0,.08); border-color: rgba(255,109,0,.3); }
-  .regime-block.warm { background: rgba(255,214,0,.07); border-color: rgba(255,214,0,.3); }
-  .regime-block.cold { background: rgba(68,138,255,.07); border-color: rgba(68,138,255,.3); }
-  .regime-label { font-size: 13px; font-weight: 700; }
-  .regime-desc  { font-size: 11px; color: var(--muted); }
-
-  /* ── Chart container ── */
-  .chart-box { position: relative; height: 200px; }
-
-  /* ── Footer ── */
-  footer { padding: 12px 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: 10px; display: flex; justify-content: space-between; }
-
-  /* ── Refresh button ── */
-  .refresh-btn {
-    cursor: pointer; background: rgba(68,138,255,.1); border: 1px solid rgba(68,138,255,.3);
-    color: var(--blue); border-radius: 6px; padding: 5px 14px; font-size: 11px; font-family: inherit;
-    transition: all .2s;
+  .status-cell .value { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .status-cell .sub { font-size: 10px; color: var(--text-dim); }
+  .status-cell .dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--text-mute); margin-right: 6px; vertical-align: middle;
   }
-  .refresh-btn:hover { background: rgba(68,138,255,.2); }
-  .spinning { animation: spin .8s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  .status-cell .dot.running { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 1.5s infinite; }
+  .status-cell .dot.stopped { background: var(--text-mute); }
+  .status-cell .dot.error { background: var(--red); box-shadow: 0 0 6px var(--red); animation: pulse 0.8s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+  /* ── Grid layout ── */
+  .grid-main {
+    display: grid; grid-template-columns: 320px 1fr 340px;
+    grid-template-rows: auto auto auto;
+    gap: 8px; padding: 8px;
+    grid-template-areas:
+      "opps   pnl    controls"
+      "opps   trades controls"
+      "rpc    gas    config";
+  }
+  .grid-main > .panel { padding: 12px; }
+
+  .panel {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .panel-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+    background: var(--bg-2);
+  }
+  .panel-title {
+    font-size: 10px; font-weight: 600; color: var(--text);
+    text-transform: uppercase; letter-spacing: 1.5px;
+  }
+  .panel-title::before {
+    content: "▸ "; color: var(--green);
+  }
+  .panel-meta { font-size: 9px; color: var(--text-mute); letter-spacing: 1px; }
+
+  /* ── Opportunities ── */
+  .opp-row {
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+    display: grid; grid-template-columns: 1fr auto auto;
+    align-items: center; gap: 10px; cursor: pointer;
+    transition: background 0.1s;
+  }
+  .opp-row:hover { background: var(--bg-2); }
+  .opp-row.flash { animation: flash-green 0.6s ease; }
+  @keyframes flash-green {
+    0% { background: var(--green-bg); }
+    100% { background: transparent; }
+  }
+  .opp-pair { font-size: 11px; font-weight: 600; }
+  .opp-pair .arrow { color: var(--text-mute); margin: 0 4px; }
+  .opp-meta { font-size: 9px; color: var(--text-dim); margin-top: 2px; }
+  .opp-spread { font-size: 11px; color: var(--amber); font-weight: 600; text-align: right; }
+  .opp-net { font-size: 13px; color: var(--green); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+  .opp-net.zero { color: var(--text-mute); }
+  .opp-signal {
+    font-size: 9px; padding: 2px 6px; border-radius: 2px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .opp-signal.execute { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-dim); }
+  .opp-signal.marginal { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber); }
+  .opp-signal.phantom { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-dim); }
+
+  /* ── P&L ── */
+  .pnl-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; background: var(--border); }
+  .pnl-cell { background: var(--bg-1); padding: 12px; }
+  .pnl-cell .period { font-size: 9px; color: var(--text-mute); text-transform: uppercase; letter-spacing: 1.5px; }
+  .pnl-cell .amount { font-size: 20px; font-weight: 700; margin: 4px 0; font-variant-numeric: tabular-nums; }
+  .pnl-cell .amount.pos { color: var(--green); }
+  .pnl-cell .amount.neg { color: var(--red); }
+  .pnl-cell .stat { font-size: 9px; color: var(--text-dim); }
+  .pnl-row { display: flex; justify-content: space-between; padding: 6px 12px; border-top: 1px solid var(--border); font-size: 10px; }
+  .pnl-row .label { color: var(--text-dim); }
+  .pnl-row .value { font-variant-numeric: tabular-nums; }
+
+  /* ── Trades ── */
+  .trades-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+  .trades-table th {
+    text-align: left; padding: 6px 8px; color: var(--text-mute);
+    font-weight: 500; font-size: 9px; text-transform: uppercase;
+    letter-spacing: 1px; border-bottom: 1px solid var(--border);
+    background: var(--bg-2);
+  }
+  .trades-table td {
+    padding: 6px 8px; border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+  }
+  .trades-table tr:hover { background: var(--bg-2); }
+  .trades-table a { color: var(--blue); text-decoration: none; }
+  .trades-table a:hover { text-decoration: underline; }
+  .badge-status {
+    display: inline-block; padding: 1px 5px; font-size: 9px; border-radius: 2px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .badge-status.confirmed { background: var(--green-bg); color: var(--green); }
+  .badge-status.pending { background: var(--amber-bg); color: var(--amber); }
+  .badge-status.failed { background: var(--red-bg); color: var(--red); }
+  .empty-state {
+    padding: 24px 12px; text-align: center; color: var(--text-mute);
+    font-size: 10px; letter-spacing: 1px;
+  }
+
+  /* ── RPC health ── */
+  .rpc-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 12px; border-bottom: 1px solid var(--border);
+    font-size: 10px;
+  }
+  .rpc-row .url { color: var(--text); font-family: var(--mono); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rpc-row .latency { font-variant-numeric: tabular-nums; }
+  .rpc-row .latency.fast { color: var(--green); }
+  .rpc-row .latency.med { color: var(--amber); }
+  .rpc-row .latency.slow { color: var(--red); }
+  .rpc-row .latency.dead { color: var(--text-mute); }
+  .rpc-row .alive-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    margin-right: 8px;
+  }
+  .rpc-row .alive-dot.alive { background: var(--green); box-shadow: 0 0 4px var(--green); }
+  .rpc-row .alive-dot.dead { background: var(--red); }
+  .rpc-row .alive-dot.unknown { background: var(--text-mute); }
+
+  /* ── Gas chart ── */
+  .gas-chart { padding: 12px; height: 200px; position: relative; }
+  .gas-bar-row { display: flex; align-items: center; gap: 8px; padding: 4px 12px; font-size: 10px; }
+  .gas-bar-label { width: 80px; color: var(--text-dim); }
+  .gas-bar-track { flex: 1; background: var(--bg-3); height: 8px; border-radius: 2px; overflow: hidden; position: relative; }
+  .gas-bar-fill { height: 100%; transition: width 0.3s; }
+  .gas-bar-fill.base { background: linear-gradient(90deg, var(--blue), var(--purple)); }
+  .gas-bar-fill.priority { background: linear-gradient(90deg, var(--amber), var(--red)); }
+  .gas-bar-fill.our-bid { background: linear-gradient(90deg, var(--green-dim), var(--green)); }
+  .gas-bar-fill.competitor { background: linear-gradient(90deg, var(--text-mute), var(--text-dim)); }
+  .gas-bar-value { width: 60px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
+  .gas-trend { padding: 0 12px 8px; }
+  .gas-sparkline { display: flex; align-items: flex-end; height: 60px; gap: 1px; }
+  .gas-spark-bar { flex: 1; background: var(--blue); opacity: 0.5; min-height: 2px; border-radius: 1px 1px 0 0; }
+  .gas-spark-bar.priority { background: var(--amber); }
+
+  /* ── Controls ── */
+  .control-section { padding: 12px; border-bottom: 1px solid var(--border); }
+  .control-section:last-child { border-bottom: none; }
+  .control-section h4 {
+    font-size: 9px; color: var(--text-mute); text-transform: uppercase;
+    letter-spacing: 1.5px; margin-bottom: 10px; font-weight: 600;
+  }
+  .btn {
+    width: 100%; padding: 10px 12px; border-radius: 3px;
+    border: 1px solid var(--border); background: var(--bg-3);
+    color: var(--text); font-family: var(--mono); font-size: 11px;
+    font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
+    cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .btn:hover { border-color: var(--border-hot); background: var(--bg-2); }
+  .btn.start { border-color: var(--green-dim); color: var(--green); }
+  .btn.start:hover { background: var(--green-bg); }
+  .btn.stop { border-color: var(--amber); color: var(--amber); }
+  .btn.stop:hover { background: var(--amber-bg); }
+  .btn.danger { border-color: var(--red-dim); color: var(--red); }
+  .btn.danger:hover { background: var(--red-bg); }
+  .btn.active { background: var(--green-bg); border-color: var(--green); color: var(--green); }
+  .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+  .config-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 10px; }
+  .config-row .label { color: var(--text-dim); }
+  .config-row .value { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .config-row .input { width: 80px; background: var(--bg-3); border: 1px solid var(--border); color: var(--text); padding: 4px 6px; border-radius: 2px; font-family: var(--mono); font-size: 10px; text-align: right; }
+  .config-row .input:focus { outline: none; border-color: var(--green-dim); }
+  .relay-pill {
+    display: inline-block; padding: 3px 8px; font-size: 9px; border-radius: 12px;
+    margin-right: 4px; margin-bottom: 4px; cursor: pointer; border: 1px solid var(--border);
+    background: var(--bg-3); color: var(--text-dim); transition: all 0.15s;
+    text-transform: uppercase; letter-spacing: 1px; font-weight: 600;
+  }
+  .relay-pill.active { background: var(--green-bg); color: var(--green); border-color: var(--green-dim); }
+  .relay-pill:hover { border-color: var(--border-hot); }
+  .pair-list { font-size: 10px; }
+  .pair-row {
+    display: flex; justify-content: space-between; padding: 4px 0;
+    border-bottom: 1px dashed var(--border);
+  }
+  .pair-row:last-child { border-bottom: none; }
+  .pair-row .name { color: var(--text); }
+  .pair-row .loan { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+  /* ── Misc ── */
+  .footer {
+    padding: 8px 18px; border-top: 1px solid var(--border);
+    font-size: 9px; color: var(--text-mute); display: flex; justify-content: space-between;
+    background: var(--bg-1);
+  }
+  .footer .blink { color: var(--green); animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: 0.2; } }
+  .scroll { overflow-y: auto; }
+  .scroll::-webkit-scrollbar { width: 6px; }
+  .scroll::-webkit-scrollbar-track { background: var(--bg-1); }
+  .scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .scroll::-webkit-scrollbar-thumb:hover { background: var(--border-hot); }
+  .area-opps { grid-area: opps; max-height: 70vh; }
+  .area-pnl { grid-area: pnl; }
+  .area-trades { grid-area: trades; max-height: 40vh; }
+  .area-controls { grid-area: controls; max-height: 80vh; }
+  .area-rpc { grid-area: rpc; max-height: 40vh; }
+  .area-gas { grid-area: gas; max-height: 40vh; }
+  .area-config { grid-area: config; max-height: 40vh; }
 </style>
 </head>
 <body>
+<div id="root"></div>
+<script type="module">
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createRoot } from 'react-dom/client';
+import htm from 'htm';
 
-<header>
-  <div>
-    <div class="logo">⚡ Flash Loan Arb <span>/ Polygon Mainnet</span></div>
-    <div class="last-update" id="lastUpdate">Last scan: —</div>
-  </div>
-  <div style="display:flex;align-items:center;gap:12px;">
-    <button class="refresh-btn" onclick="runScan()"><span id="refreshIcon">↻</span> Refresh</button>
-    <div class="live-badge"><div class="live-dot"></div> LIVE</div>
-  </div>
-</header>
+const html = htm.bind(React.createElement);
+const API = (path, opts) => fetch(path, opts).then(r => r.json()).catch(e => ({ error: e.message }));
 
-<!-- ── Top stat cards ── -->
-<div class="grid">
-  <div class="card">
-    <div class="card-title">Combined Net / Scan</div>
-    <div class="card-value green" id="combinedNet">—</div>
-    <div class="card-sub" id="pairsCount">— pairs active</div>
-  </div>
-  <div class="card">
-    <div class="card-title">Best Single Trade</div>
-    <div class="card-value green" id="bestNet">—</div>
-    <div class="card-sub" id="bestPair">—</div>
-  </div>
-  <div class="card">
-    <div class="card-title">ETH Price</div>
-    <div class="card-value blue" id="ethPrice">—</div>
-    <div class="card-sub" id="maticPrice">MATIC —</div>
-  </div>
-  <div class="card">
-    <div class="card-title">Gas Price</div>
-    <div class="card-value yellow" id="gasPrice">—</div>
-    <div class="card-sub" id="gasCost">est. tx —</div>
-  </div>
-</div>
+// ─────────────────────────────────────────────────────────────────────────────
+// Hooks
+// ─────────────────────────────────────────────────────────────────────────────
+function usePoll(path, intervalMs = 2000) {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let active = true;
+    const tick = async () => {
+      const d = await API(path);
+      if (active && !d.error) setData(d);
+    };
+    tick();
+    const id = setInterval(tick, intervalMs);
+    return () => { active = false; clearInterval(id); };
+  }, [path, intervalMs]);
+  return data;
+}
 
-<!-- ── HMM + Chart ── -->
-<div class="grid-3">
-  <div class="card">
-    <div class="card-title">Spread History — Net Profit per Signal ($)</div>
-    <div class="chart-box"><canvas id="spreadChart"></canvas></div>
-  </div>
-  <div class="card">
-    <div class="card-title">HMM Market Regime</div>
-    <div id="regimeBlock" class="regime-block hot">
-      <div style="font-size:24px" id="regimeEmoji">🔥</div>
-      <div>
-        <div class="regime-label" id="regimeLabel">HOT</div>
-        <div class="regime-desc" id="regimeDesc">Aggressive execution — 0.8× threshold</div>
+// ─────────────────────────────────────────────────────────────────────────────
+// Components
+// ─────────────────────────────────────────────────────────────────────────────
+const fmt = (n, d = 2) => n == null ? '—' : Number(n).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d });
+const fmtUsd = (n) => n == null ? '—' : (n >= 0 ? '$' : '-$') + Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+const fmtTime = (iso) => {
+  if (!iso) return '—';
+  try { return new Date(iso).toLocaleTimeString('en-US', { hour12: false }); }
+  catch { return '—'; }
+};
+const fmtAgo = (iso) => {
+  if (!iso) return '—';
+  const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  if (sec < 3600) return `${Math.floor(sec/60)}m ago`;
+  return `${Math.floor(sec/3600)}h ago`;
+};
+
+function TopBar({ status }) {
+  const [clock, setClock] = useState(new Date());
+  useEffect(() => { const id = setInterval(() => setClock(new Date()), 1000); return () => clearInterval(id); }, []);
+  return html`
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo">FLASH//ARB</div>
+        <div class="sep">::</div>
+        <div class="sub">MEV Search Terminal · Polygon V3</div>
+      </div>
+      <div class="topbar-right">
+        <div class="ticker">
+          <div class="item"><b>POLYGON</b></div>
+          <div class="item">ETH <b>$${fmt(status?.ethPrice ?? 1931)}</b></div>
+          <div class="item">MATIC <b>$${fmt(status?.maticPrice ?? 0.084, 4)}</b></div>
+          <div class="item">BTC <b>$${fmt(status?.btcPrice ?? 65000, 0)}</b></div>
+          <div class="item">GAS <b>${fmt(status?.lastGasBid?.totalGwei ?? 281, 1)} GWEI</b></div>
+          <div class="item">BLOCK <b>#${status?.lastBlock ?? '—'}</b></div>
+        </div>
+        <div class="clock">${clock.toISOString().slice(11, 19)} UTC</div>
       </div>
     </div>
-    <div class="card-title" style="margin-top:8px">Current Block</div>
-    <div style="font-size:18px;font-weight:700;color:var(--purple)" id="blockNum">—</div>
-    <div class="card-title" style="margin-top:12px">Bot Wallet MATIC</div>
-    <div style="font-size:18px;font-weight:700;" id="walletBal" class="yellow">—</div>
-    <div class="card-sub" id="walletStatus">—</div>
-  </div>
-</div>
+  `;
+}
 
-<!-- ── Signals table ── -->
-<div style="padding: 0 24px 16px;">
-  <div class="card">
-    <div class="card-title" style="margin-bottom:12px">Live Arbitrage Signals</div>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Pair</th>
-            <th>Loan Size</th>
-            <th>Buy DEX</th>
-            <th>QS Depth</th>
-            <th>SS Depth</th>
-            <th>Spread %</th>
-            <th>Spread $</th>
-            <th>Net Profit</th>
-            <th>Slippage</th>
-            <th>Signal</th>
-          </tr>
-        </thead>
-        <tbody id="signalRows">
-          <tr><td colspan="10" style="color:var(--muted);text-align:center;padding:30px">Fetching live data…</td></tr>
-        </tbody>
-      </table>
+function StatusStrip({ status }) {
+  const statusClass = status?.status?.toLowerCase() ?? 'stopped';
+  const uptime = status?.uptimeSeconds ? `${Math.floor(status.uptimeSeconds/3600)}h ${Math.floor((status.uptimeSeconds%3600)/60)}m` : '0h 0m';
+  const regime = status?.hmmRegime ?? 'UNKNOWN';
+  const regimeColor = regime === 'HOT' ? 'var(--red)' : regime === 'WARM' ? 'var(--amber)' : regime === 'COLD' ? 'var(--blue)' : 'var(--text-mute)';
+  return html`
+    <div class="status-strip">
+      <div class="status-cell">
+        <div class="label">Bot Status</div>
+        <div class="value"><span class=${`dot ${statusClass}`}></span>${status?.status ?? '—'}</div>
+        <div class="sub">Uptime ${uptime}</div>
+      </div>
+      <div class="status-cell">
+        <div class="label">RPC Pool</div>
+        <div class="value">${status?.rpcAlive ?? 0}<span style="color:var(--text-mute);font-weight:400">/${status?.rpcTotal ?? 20}</span> alive</div>
+        <div class="sub">WS subs: ${status?.wsSubscriptions ?? 0}</div>
+      </div>
+      <div class="status-cell">
+        <div class="label">HMM Regime</div>
+        <div class="value" style=${{color: regimeColor}}>${regime}</div>
+        <div class="sub">Confidence ${fmt(status?.hmmConfidence ?? 0, 1)}%</div>
+      </div>
+      <div class="status-cell">
+        <div class="label">Gas Bid</div>
+        <div class="value" style=${{color: 'var(--green)'}}>${fmt(status?.lastGasBid?.totalGwei ?? 0, 1)} <span style="font-size:10px;color:var(--text-dim)">GWEI</span></div>
+        <div class="sub">Cap ${fmt(status?.lastGasBid?.capped ? 'CAPPED' : 'OK')}</div>
+      </div>
+      <div class="status-cell">
+        <div class="label">Active Relay</div>
+        <div class="value" style=${{color: 'var(--blue)'}}>${(status?.activeRelay ?? 'fastlane').toUpperCase()}</div>
+        <div class="sub">MEV private mempool</div>
+      </div>
+      <div class="status-cell">
+        <div class="label">Sim Mode</div>
+        <div class="value" style=${{color: status?.simMode ? 'var(--amber)' : 'var(--green)'}}>${status?.simMode ? 'SIMULATION' : 'LIVE'}</div>
+        <div class="sub">${status?.simMode ? 'No real txs' : 'Real execution'}</div>
+      </div>
+      <div class="status-cell">
+        <div class="label">Last Signal</div>
+        <div class="value">${fmtAgo(status?.lastOpportunityAt)}</div>
+        <div class="sub">${status?.lastBlock ? 'Block #' + status.lastBlock : 'Awaiting scan'}</div>
+      </div>
     </div>
-  </div>
-</div>
+  `;
+}
 
-<footer>
-  <span>Polygon Mainnet · QuickSwap ↔ SushiSwap · Min depth $15K · Gas ceil 350 Gwei</span>
-  <span id="footerBlock">Block —</span>
-</footer>
-
-<script>
-// ── Embedded live scan data (injected at build time, refreshed via JS) ─────
-const SCAN_DATA = {
-  block:    90091376,
-  ts:       "2026-07-12T07:41:00Z",
-  eth:      1796,
-  matic:    0.0795,
-  btc:      63819,
-  gasGwei:  277.4,
-  gasCostUsd: 0.017,
-  walletMatic: 0.0109,
-  regime:   "HOT",
-  signals: [
-    { pair:"WETH→USDC",   loan:"15 WETH", buyDex:"QS", qsDepth:"$963K", ssDepth:"$49K", spreadPct:33.78, spreadUsd:8816.17, netUsd:3918.35, slip:55.4, signal:"EXECUTE" },
-    { pair:"WETH→USDC",   loan:"10 WETH", buyDex:"QS", qsDepth:"$963K", ssDepth:"$49K", spreadPct:25.54, spreadUsd:4485.58, netUsd:2819.85, slip:36.9, signal:"EXECUTE" },
-    { pair:"WETH→WMATIC", loan:"10 WETH", buyDex:"QS", qsDepth:"$193K", ssDepth:"$46K", spreadPct:21.53, spreadUsd:3534.43, netUsd:2131.11, slip:39.4, signal:"EXECUTE" },
-    { pair:"WMATIC→USDC", loan:"50K MATIC",buyDex:"QS",qsDepth:"$270K", ssDepth:"$40K", spreadPct:7.66,  spreadUsd:298.76,  netUsd:267.26,  slip:9.9,  signal:"EXECUTE" },
-    { pair:"WMATIC→USDC", loan:"20K MATIC",buyDex:"QS",qsDepth:"$270K", ssDepth:"$40K", spreadPct:3.27,  spreadUsd:51.36,   netUsd:48.52,   slip:3.9,  signal:"EXECUTE" },
-  ]
-};
-
-// ── Historical net data (last 8 scans — today) ────────────────────────────
-const HISTORY = [
-  { label:"03:26", nets:[2837,3935,2135,48,267] },
-  { label:"06:23", nets:[2826,3924,2133,48,265] },
-  { label:"06:29", nets:[2823,3921,2135,48,265] },
-  { label:"06:59", nets:[2820,3918,2138,48,265] },
-  { label:"07:37", nets:[2820,3918,2136,49,267] },
-  { label:"07:41", nets:[2820,3918,2131,49,267] },
-];
-
-// ── Chart setup ────────────────────────────────────────────────────────────
-const ctx = document.getElementById('spreadChart').getContext('2d');
-const COLORS = ['#00e676','#448aff','#ce93d8','#ffd600','#ff6d00'];
-const LABELS = ['WETH→USDC 15','WETH→USDC 10','WETH→WMATIC','WMATIC→USDC 50K','WMATIC→USDC 20K'];
-
-const chartData = {
-  labels: HISTORY.map(h => h.label),
-  datasets: LABELS.map((lbl, i) => ({
-    label: lbl,
-    data: HISTORY.map(h => h.nets[i]),
-    borderColor: COLORS[i],
-    backgroundColor: COLORS[i] + '18',
-    fill: i === 0,
-    tension: 0.35,
-    pointRadius: 3,
-    pointHoverRadius: 5,
-    borderWidth: 2,
-  }))
-};
-
-const chart = new Chart(ctx, {
-  type: 'line',
-  data: chartData,
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    interaction: { mode: 'index', intersect: false },
-    plugins: {
-      legend: { labels: { color: '#64748b', font: { size: 10 }, boxWidth: 10 } },
-      tooltip: {
-        backgroundColor: '#111827',
-        borderColor: '#1f2d3d',
-        borderWidth: 1,
-        titleColor: '#e2e8f0',
-        bodyColor: '#94a3b8',
-        callbacks: { label: ctx => ` ${ctx.dataset.label}: $${ctx.parsed.y.toLocaleString()}` }
-      }
-    },
-    scales: {
-      x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1f2d3d' } },
-      y: {
-        ticks: { color: '#64748b', font: { size: 10 }, callback: v => '$' + (v/1000).toFixed(1) + 'K' },
-        grid: { color: '#1f2d3d' }
-      }
+function OpportunitiesPanel() {
+  const opps = usePoll('/api/opportunities?limit=50', 3000);
+  const [flashIds, setFlashIds] = useState(new Set());
+  const prevIds = useRef(new Set());
+  useEffect(() => {
+    if (!opps) return;
+    const newIds = new Set();
+    const toFlash = new Set();
+    for (const o of opps) {
+      const id = o.id ?? o.timestamp;
+      newIds.add(id);
+      if (!prevIds.current.has(id)) toFlash.add(id);
     }
-  }
-});
+    prevIds.current = newIds;
+    if (toFlash.size > 0) setFlashIds(toFlash);
+  }, [opps]);
+  const list = (opps ?? []).slice().reverse();
+  return html`
+    <div class="panel area-opps scroll">
+      <div class="panel-header">
+        <div class="panel-title">Live Opportunities</div>
+        <div class="panel-meta">${list.length} SIGNALS · LAST ${fmtTime(list[0]?.timestamp)}</div>
+      </div>
+      <div>
+        ${list.length === 0 ? html`<div class="empty-state">AWAITING SIGNAL ▸ SCANNER IDLE</div>` : list.map(o => {
+          const signal = (o.signal ?? o.status ?? 'execute').toLowerCase();
+          const signalClass = signal.includes('phantom') ? 'phantom' : signal.includes('marg') || signal.includes('low') ? 'marginal' : 'execute';
+          const net = Number(o.netProfitUsd ?? o.net ?? 0);
+          const isFlash = flashIds.has(o.id ?? o.timestamp);
+          return html`
+            <div class=${`opp-row ${isFlash ? 'flash' : ''}`} key=${o.id ?? o.timestamp}>
+              <div>
+                <div class="opp-pair">
+                  ${o.pairName ?? o.pair ?? o.tokenIn?.slice(0,6) + '→' + o.tokenOut?.slice(0,6)}
+                </div>
+                <div class="opp-meta">
+                  QS $${fmt(o.qsDepthUsd ?? 0, 0)}K · SS $${fmt(o.ssDepthUsd ?? 0, 0)}K · slip ${fmt(o.slippagePct ?? 0, 1)}%
+                </div>
+              </div>
+              <div class="opp-spread">+${fmt(o.spreadUsd ?? o.spread ?? 0, 0)}$</div>
+              <div style=${{textAlign: 'right'}}>
+                <div class=${`opp-net ${net === 0 ? 'zero' : ''}`}>+${fmtUsd(net)}</div>
+                <div class=${`opp-signal ${signalClass}`} style=${{marginTop: '4px'}}>${signal}</div>
+              </div>
+            </div>
+          `;
+        })}
+      </div>
+    </div>
+  `;
+}
 
-// ── Render functions ───────────────────────────────────────────────────────
-function fmt$(v) { return '$' + v.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}); }
+function PnlPanel() {
+  const pnl = usePoll('/api/pnl', 5000);
+  if (!pnl) return html`<div class="panel area-pnl"><div class="panel-header"><div class="panel-title">P&L Summary</div></div><div class="empty-state">LOADING…</div></div>`;
+  return html`
+    <div class="panel area-pnl">
+      <div class="panel-header">
+        <div class="panel-title">P&L Summary</div>
+        <div class="panel-meta">USDC · NET PROFIT</div>
+      </div>
+      <div class="pnl-grid">
+        <div class="pnl-cell">
+          <div class="period">Today</div>
+          <div class=${`amount ${pnl.today.profit >= 0 ? 'pos' : 'neg'}`}>${fmtUsd(pnl.today.profit)}</div>
+          <div class="stat">${pnl.today.trades} trades · ${fmtUsd(pnl.today.gas)} gas</div>
+        </div>
+        <div class="pnl-cell">
+          <div class="period">7-Day</div>
+          <div class=${`amount ${pnl.week.profit >= 0 ? 'pos' : 'neg'}`}>${fmtUsd(pnl.week.profit)}</div>
+          <div class="stat">${pnl.week.trades} trades · ${fmtUsd(pnl.week.gas)} gas</div>
+        </div>
+        <div class="pnl-cell">
+          <div class="period">All-Time</div>
+          <div class=${`amount ${pnl.all.profit >= 0 ? 'pos' : 'neg'}`}>${fmtUsd(pnl.all.profit)}</div>
+          <div class="stat">${pnl.all.trades} trades · ${fmtUsd(pnl.all.gas)} gas</div>
+        </div>
+      </div>
+      <div class="pnl-row"><span class="label">Success Rate</span><span class="value" style=${{color: 'var(--green)'}}>${fmt(pnl.all.successRate, 1)}%</span></div>
+      <div class="pnl-row"><span class="label">Avg Execution Time</span><span class="value">${fmt(pnl.all.avgExecutionMs, 0)} ms</span></div>
+    </div>
+  `;
+}
 
-function renderDashboard(d) {
-  const combined = d.signals.reduce((s,r) => s + r.netUsd, 0);
-  const best = d.signals.reduce((a,b) => b.netUsd > a.netUsd ? b : a);
+function TradesPanel() {
+  const trades = usePoll('/api/trades?limit=50', 5000);
+  const list = (trades ?? []).slice().reverse();
+  return html`
+    <div class="panel area-trades scroll">
+      <div class="panel-header">
+        <div class="panel-title">Executed Trades</div>
+        <div class="panel-meta">${list.length} RECORDS</div>
+      </div>
+      ${list.length === 0
+        ? html`<div class="empty-state">NO EXECUTED TRADES YET ▸ SIM MODE</div>`
+        : html`<table class="trades-table">
+            <thead>
+              <tr><th>Block</th><th>Time</th><th>Pair</th><th>Profit</th><th>Gas</th><th>Relay</th><th>TxHash</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              ${list.map(t => html`
+                <tr key=${t.txHash}>
+                  <td>${t.blockNumber ?? '—'}</td>
+                  <td>${fmtTime(t.timestamp)}</td>
+                  <td>${t.pairName ?? t.pair ?? '—'}</td>
+                  <td style=${{color: 'var(--green)'}}>+${fmtUsd(t.netProfitUsd ?? t.net)}</td>
+                  <td style=${{color: 'var(--amber)'}}>${fmtUsd(t.gasCostUsd ?? 0)}</td>
+                  <td>${t.relay ?? 'public'}</td>
+                  <td><a href=${`https://polygonscan.com/tx/${t.txHash}`} target="_blank" rel="noopener">${t.txHash?.slice(0,10)}…</a></td>
+                  <td><span class=${`badge-status ${t.txStatus ?? 'pending'}`}>${t.txStatus ?? 'pending'}</span></td>
+                </tr>
+              `)}
+            </tbody>
+          </table>`}
+    </div>
+  `;
+}
 
-  document.getElementById('combinedNet').textContent = fmt$(combined);
-  document.getElementById('pairsCount').textContent = d.signals.length + ' pairs active';
-  document.getElementById('bestNet').textContent = fmt$(best.netUsd);
-  document.getElementById('bestPair').textContent = best.pair + ' · ' + best.loan;
-  document.getElementById('ethPrice').textContent = '$' + d.eth.toLocaleString();
-  document.getElementById('maticPrice').textContent = 'MATIC $' + d.matic.toFixed(4);
-  document.getElementById('gasPrice').textContent = d.gasGwei.toFixed(1) + ' Gwei';
-  document.getElementById('gasCost').textContent = 'est. tx $' + d.gasCostUsd.toFixed(3);
-  document.getElementById('blockNum').textContent = '#' + d.block.toLocaleString();
-  document.getElementById('footerBlock').textContent = 'Block #' + d.block.toLocaleString();
-  document.getElementById('lastUpdate').textContent = 'Last scan: ' + new Date(d.ts).toLocaleTimeString();
+function RpcHealthPanel() {
+  const rpc = usePoll('/api/rpc-health', 5000);
+  const list = rpc ?? [];
+  return html`
+    <div class="panel area-rpc scroll">
+      <div class="panel-header">
+        <div class="panel-title">RPC Health Monitor</div>
+        <div class="panel-meta">${list.filter(r => r.alive).length}/${list.length} ALIVE</div>
+      </div>
+      ${list.length === 0 ? html`<div class="empty-state">NO RPC DATA</div>` : list.map(r => {
+        const lat = r.latencyMs;
+        const cls = lat == null ? 'unknown' : r.alive ? (lat < 200 ? 'fast' : lat < 800 ? 'med' : 'slow') : 'dead';
+        return html`
+          <div class="rpc-row" key=${r.url}>
+            <span class=${`alive-dot ${r.alive == null ? 'unknown' : r.alive ? 'alive' : 'dead'}`}></span>
+            <span class="url" title=${r.url}>${r.url}</span>
+            <span class=${`latency ${cls}`}>
+              ${r.alive == null ? '—' : r.alive ? `${lat}ms` : 'DEAD'}
+              ${r.failCount > 0 && r.alive !== true ? ` ×${r.failCount}` : ''}
+            </span>
+          </div>
+        `;
+      })}
+    </div>
+  `;
+}
 
-  // Wallet
-  const wbal = d.walletMatic;
-  const walletEl = document.getElementById('walletBal');
-  const statusEl = document.getElementById('walletStatus');
-  walletEl.textContent = wbal.toFixed(4) + ' MATIC';
-  if (wbal < 0.21) {
-    walletEl.className = 'red';
-    statusEl.textContent = '⚠️ Low — needs top-up to execute';
-    statusEl.style.color = 'var(--red)';
-  } else {
-    walletEl.className = 'green';
-    statusEl.textContent = '✅ Ready for live execution';
-    statusEl.style.color = 'var(--green)';
-  }
+function GasPanel() {
+  const gas = usePoll('/api/gas', 5000);
+  const bid = gas?.lastBid;
+  const history = gas?.history ?? [];
+  const maxGwei = Math.max(50, ...history.map(h => h.baseFeeGwei + h.priorityFeeGwei), bid?.totalGwei ?? 0);
+  const recent = history.slice(-30);
+  const maxBase = Math.max(1, ...recent.map(h => h.baseFeeGwei));
+  return html`
+    <div class="panel area-gas">
+      <div class="panel-header">
+        <div class="panel-title">Gas & Priority Fee</div>
+        <div class="panel-meta">EIP-1559 · POLYGON</div>
+      </div>
+      <div class="gas-bar-row">
+        <div class="gas-bar-label">Base Fee</div>
+        <div class="gas-bar-track"><div class="gas-bar-fill base" style=${{width: `${(bid?.baseFee ?? 30) / maxGwei * 100}%`}}></div></div>
+        <div class="gas-bar-value">${fmt(bid?.baseFee ?? 0, 1)}</div>
+      </div>
+      <div class="gas-bar-row">
+        <div class="gas-bar-label">Priority Fee</div>
+        <div class="gas-bar-track"><div class="gas-bar-fill priority" style=${{width: `${(bid?.priorityFee ?? 30) / maxGwei * 100}%`}}></div></div>
+        <div class="gas-bar-value">${fmt(bid?.priorityFee ?? 0, 1)}</div>
+      </div>
+      <div class="gas-bar-row">
+        <div class="gas-bar-label">Our Bid</div>
+        <div class="gas-bar-track"><div class="gas-bar-fill our-bid" style=${{width: `${(bid?.totalGwei ?? 60) / maxGwei * 100}%`}}></div></div>
+        <div class="gas-bar-value" style=${{color: 'var(--green)'}}>${fmt(bid?.totalGwei ?? 0, 1)}</div>
+      </div>
+      <div class="gas-bar-row">
+        <div class="gas-bar-label">Competitor</div>
+        <div class="gas-bar-track"><div class="gas-bar-fill competitor" style=${{width: `${(bid?.competitorEstimate ?? 30) / maxGwei * 100}%`}}></div></div>
+        <div class="gas-bar-value">${fmt(bid?.competitorEstimate ?? 0, 1)}</div>
+      </div>
+      <div class="gas-trend">
+        <div style=${{fontSize: '9px', color: 'var(--text-mute)', marginBottom: '4px', letterSpacing: '1.5px', textTransform: 'uppercase'}}>▸ Base Fee Trend (last 30 blocks)</div>
+        <div class="gas-sparkline">
+          ${recent.map(h => html`<div class="gas-spark-bar" style=${{height: `${h.baseFeeGwei / maxBase * 100}%`}} title=${`#${h.blockNumber} ${h.baseFeeGwei}gwei`}></div>`)}
+        </div>
+      </div>
+    </div>
+  `;
+}
 
-  // Regime
-  const regimes = {
-    HOT:  { emoji:'🔥', cls:'hot',  label:'HOT',  desc:'Aggressive execution — 0.8× threshold' },
-    WARM: { emoji:'⚡', cls:'warm', label:'WARM', desc:'Normal execution — 1.0× threshold' },
-    COLD: { emoji:'🧊', cls:'cold', label:'COLD', desc:'Suppressed — 1.5× threshold' },
+function ControlsPanel({ status, onStatusChange }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const call = async (path, method = 'POST') => {
+    setBusy(true); setMsg('Working…');
+    try {
+      const r = await API(path, { method });
+      setMsg(r.message ?? JSON.stringify(r).slice(0, 80));
+      setTimeout(onStatusChange, 500);
+    } catch (e) { setMsg('Error: ' + e.message); }
+    setBusy(false);
+    setTimeout(() => setMsg(''), 3000);
   };
-  const reg = regimes[d.regime] || regimes.WARM;
-  document.getElementById('regimeBlock').className = 'regime-block ' + reg.cls;
-  document.getElementById('regimeEmoji').textContent = reg.emoji;
-  document.getElementById('regimeLabel').textContent = reg.label;
-  document.getElementById('regimeDesc').textContent = reg.desc;
-
-  // Table
-  const tbody = document.getElementById('signalRows');
-  tbody.innerHTML = d.signals.map(s => {
-    const barW = Math.min(100, (s.netUsd / 5000) * 100);
-    const barColor = s.netUsd > 2000 ? 'var(--green)' : s.netUsd > 200 ? 'var(--yellow)' : 'var(--blue)';
-    const sigCls = s.signal === 'EXECUTE' ? 'sig-execute' : 'sig-marginal';
-    return `
-      <tr>
-        <td><b>${s.pair}</b></td>
-        <td style="color:var(--muted)">${s.loan}</td>
-        <td style="color:var(--blue)">${s.buyDex}</td>
-        <td>${s.qsDepth}</td>
-        <td>${s.ssDepth}</td>
-        <td style="color:var(--yellow)">${s.spreadPct.toFixed(2)}%</td>
-        <td style="color:var(--text)">${fmt$(s.spreadUsd)}</td>
-        <td>
-          <div style="margin-bottom:3px"><b style="color:${barColor}">${fmt$(s.netUsd)}</b></div>
-          <div class="bar-outer"><div class="bar-inner" style="width:${barW}%;background:${barColor}"></div></div>
-        </td>
-        <td style="color:var(--muted)">${s.slip.toFixed(1)}%</td>
-        <td><span class="signal-badge ${sigCls}">🟢 ${s.signal}</span></td>
-      </tr>`;
-  }).join('');
+  return html`
+    <div class="panel area-controls scroll">
+      <div class="panel-header">
+        <div class="panel-title">Bot Controls</div>
+        <div class="panel-meta">${status?.status ?? '—'}</div>
+      </div>
+      <div class="control-section">
+        <h4>Service</h4>
+        <div class="btn-row">
+          <button class=${`btn start ${status?.status === 'RUNNING' ? 'active' : ''}`} disabled=${busy} onClick=${() => call('/api/control/start')}>▶ Start</button>
+          <button class="btn stop" disabled=${busy} onClick=${() => call('/api/control/stop')}>■ Stop</button>
+        </div>
+        <div class="btn-row">
+          <button class=${`btn ${status?.simMode ? 'active' : ''}`} disabled=${busy} onClick=${() => call('/api/control/sim/on')}>SIM MODE</button>
+          <button class=${`btn ${!status?.simMode ? 'active' : ''}`} disabled=${busy} onClick=${() => call('/api/control/sim/off')}>LIVE</button>
+        </div>
+        <button class="btn danger" disabled=${busy} onClick=${() => { if (confirm('Emergency withdraw all ERC-20 tokens from FlashLoanSecure contract?')) call('/api/control/emergency-withdraw'); }}>⚠ Emergency Withdraw</button>
+      </div>
+      ${msg && html`<div style=${{padding: '4px 12px', fontSize: '10px', color: 'var(--amber)'}}>▸ ${msg}</div>`}
+      <div class="control-section">
+        <h4>MEV Relay Priority</h4>
+        ${(status?.relayPriority ?? ['fastlane','merkle','flashbots','public']).map(r => html`
+          <span class=${`relay-pill ${r === status?.activeRelay ? 'active' : ''}`} key=${r}>${r}</span>
+        `)}
+        <div style=${{fontSize: '9px', color: 'var(--text-mute)', marginTop: '8px'}}>
+          Private mempool routing protects against sandwich attacks.
+        </div>
+      </div>
+      <div class="control-section">
+        <h4>Live Telemetry</h4>
+        <div class="config-row"><span class="label">HMM Regime</span><span class="value">${status?.hmmRegime ?? '—'}</span></div>
+        <div class="config-row"><span class="label">HMM Confidence</span><span class="value">${fmt(status?.hmmConfidence ?? 0, 1)}%</span></div>
+        <div class="config-row"><span class="label">Block</span><span class="value">#${status?.lastBlock ?? '—'}</span></div>
+        <div class="config-row"><span class="label">Last Block At</span><span class="value">${fmtTime(status?.lastBlockAt)}</span></div>
+        <div class="config-row"><span class="label">Uptime</span><span class="value">${status?.uptimeSeconds ? Math.floor(status.uptimeSeconds/3600) + 'h ' + Math.floor((status.uptimeSeconds%3600)/60) + 'm' : '—'}</span></div>
+      </div>
+    </div>
+  `;
 }
 
-// ── Fake "refresh" — updates timestamp and adds a new history point ────────
-let scanCount = 0;
-function runScan() {
-  const icon = document.getElementById('refreshIcon');
-  icon.className = 'spinning';
-  icon.textContent = '↻';
-  setTimeout(() => {
-    scanCount++;
-    // Simulate tiny market movement
-    SCAN_DATA.block += Math.floor(Math.random() * 8) + 3;
-    SCAN_DATA.ts = new Date().toISOString();
-    SCAN_DATA.eth = 1796 + (Math.random() - 0.5) * 6;
-    SCAN_DATA.matic = 0.0795 + (Math.random() - 0.5) * 0.0004;
-    SCAN_DATA.gasGwei = 277 + (Math.random() - 0.5) * 8;
-    SCAN_DATA.signals.forEach(s => {
-      s.spreadUsd *= (1 + (Math.random() - 0.5) * 0.01);
-      s.netUsd    *= (1 + (Math.random() - 0.5) * 0.01);
-      s.spreadPct *= (1 + (Math.random() - 0.5) * 0.01);
+function ConfigPanel() {
+  const cfg = usePoll('/api/config', 5000);
+  const [form, setForm] = useState({ minProfitUsd: '', maxGasGwei: '', activeRelay: '' });
+  useEffect(() => {
+    if (cfg) setForm({ minProfitUsd: cfg.minProfitUsd, maxGasGwei: cfg.maxGasGwei, activeRelay: cfg.activeRelay });
+  }, [cfg]);
+  const save = async () => {
+    await API('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        minProfitUsd: Number(form.minProfitUsd),
+        maxGasGwei: Number(form.maxGasGwei),
+        activeRelay: form.activeRelay,
+      })
     });
-
-    // Push to chart
-    const now = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-    chart.data.labels.push(now);
-    chart.data.datasets.forEach((ds, i) => ds.data.push(Math.round(SCAN_DATA.signals[i]?.netUsd || 0)));
-    if (chart.data.labels.length > 12) {
-      chart.data.labels.shift();
-      chart.data.datasets.forEach(ds => ds.data.shift());
-    }
-    chart.update('active');
-
-    renderDashboard(SCAN_DATA);
-    icon.className = '';
-    icon.textContent = '↻';
-  }, 900);
+  };
+  if (!cfg) return html`<div class="panel area-config"><div class="panel-header"><div class="panel-title">Configuration</div></div><div class="empty-state">LOADING…</div></div>`;
+  return html`
+    <div class="panel area-config scroll">
+      <div class="panel-header">
+        <div class="panel-title">Configuration</div>
+        <div class="panel-meta">RELOADS LIVE</div>
+      </div>
+      <div class="control-section">
+        <h4>Risk Parameters</h4>
+        <div class="config-row">
+          <span class="label">Min Profit ($)</span>
+          <input class="input" type="number" step="0.5" value=${form.minProfitUsd}
+            onChange=${e => setForm({ ...form, minProfitUsd: e.target.value })} />
+        </div>
+        <div class="config-row">
+          <span class="label">Max Gas Cap (Gwei)</span>
+          <input class="input" type="number" step="10" value=${form.maxGasGwei}
+            onChange=${e => setForm({ ...form, maxGasGwei: e.target.value })} />
+        </div>
+        <div class="config-row">
+          <span class="label">Min Pool Depth ($)</span>
+          <span class="value">$${fmt(cfg.minPoolDepthUsd, 0)}</span>
+        </div>
+        <div class="config-row">
+          <span class="label">Max Daily Loss ($)</span>
+          <span class="value">$${fmt(cfg.maxDailyLossUsd, 0)}</span>
+        </div>
+        <button class="btn" style=${{marginTop: '10px'}} onClick=${save}>↻ Apply Changes</button>
+      </div>
+      <div class="control-section">
+        <h4>Target Pairs (${cfg.targetPairs?.length ?? 0})</h4>
+        <div class="pair-list">
+          ${(cfg.targetPairs ?? []).map(p => html`
+            <div class="pair-row" key=${p.name}>
+              <span class="name">${p.name}</span>
+              <span class="loan">${p.loan} ${p.asset}</span>
+            </div>
+          `)}
+        </div>
+      </div>
+    </div>
+  `;
 }
 
-// ── Auto-refresh every 30s ─────────────────────────────────────────────────
-renderDashboard(SCAN_DATA);
-setInterval(runScan, 30000);
+function Footer({ status }) {
+  return html`
+    <div class="footer">
+      <div>FLASH//ARB v1.1.0-weth-routing · <span class="blink">●</span> ${status?.status === 'RUNNING' ? 'OPERATIONAL' : 'STANDBY'}</div>
+      <div>POLYGON MAINNET · BLOCK #${status?.lastBlock ?? '—'} · ${new Date().toISOString().slice(0,19)}Z</div>
+    </div>
+  `;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// App
+// ─────────────────────────────────────────────────────────────────────────────
+function App() {
+  const status = usePoll('/api/status', 2000);
+  return html`
+    <div>
+      <${TopBar} status=${status} />
+      <${StatusStrip} status=${status} />
+      <div class="grid-main">
+        <${OpportunitiesPanel} />
+        <${PnlPanel} />
+        <${TradesPanel} />
+        <${ControlsPanel} status=${status} onStatusChange=${() => {}} />
+        <${RpcHealthPanel} />
+        <${GasPanel} />
+        <${ConfigPanel} />
+      </div>
+      <${Footer} status=${status} />
+    </div>
+  `;
+}
+
+createRoot(document.getElementById('root')).render(React.createElement(App));
 </script>
 </body>
 </html>

@@ -42,6 +42,11 @@ import { NonceManager }                          from "./nonce-manager";
 import { ChainlinkPriceFeed, FEEDS }             from "./price-feed";
 import { writeOpportunity, readTodayLog, OpportunityRecord } from "./opportunity-log";
 import { SpreadHMM, HMMState, Regime }                        from "./hmm";
+import { getRpcPool, RpcPool }                              from "./rpc-pool";
+import { getMevRouter, MevRelayRouter, RelayName }           from "./mev-relay";
+import { getGasBidder, GasBidder }                          from "./gas-bidder";
+import * as fs from "fs";
+import * as path from "path";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -159,13 +164,23 @@ export class ScanLoop {
   private hmm = new SpreadHMM();
   private lastHMMState: HMMState | null = null;
 
+  /** Production infra: rotating RPC pool, MEV relay router, dynamic gas bidder */
+  private rpcPool:    RpcPool;
+  private mevRouter:  MevRelayRouter;
+  private gasBidder:  GasBidder;
+  private sessionStartMs = Date.now();
+
   constructor() {
-    this.http       = new JsonRpcProvider(ENV.POLYGON_RPC_URL);
-    this.qsRouter   = new Contract(QUICKSWAP_ROUTER,  ROUTER_ABI,  this.http);
-    this.ssRouter   = new Contract(SUSHISWAP_ROUTER,  ROUTER_ABI,  this.http);
-    this.qsFactory  = new Contract(QUICKSWAP_FACTORY, FACTORY_ABI, this.http);
-    this.ssFactory  = new Contract(SUSHISWAP_FACTORY, FACTORY_ABI, this.http);
-    this.priceFeed  = new ChainlinkPriceFeed(this.http);
+    this.rpcPool   = getRpcPool();
+    this.rpcPool.startHealthChecks();
+    this.mevRouter = getMevRouter();
+    this.gasBidder = getGasBidder();
+    this.http      = this.rpcPool.bestProvider();
+    this.qsRouter  = new Contract(QUICKSWAP_ROUTER,  ROUTER_ABI,  this.http);
+    this.ssRouter  = new Contract(SUSHISWAP_ROUTER,  ROUTER_ABI,  this.http);
+    this.qsFactory = new Contract(QUICKSWAP_FACTORY, FACTORY_ABI, this.http);
+    this.ssFactory = new Contract(SUSHISWAP_FACTORY, FACTORY_ABI, this.http);
+    this.priceFeed = new ChainlinkPriceFeed(this.http);
 
     // Spread source: oracle if address is set, else DEX-direct
     if (ENV.PRICE_ORACLE_ADDRESS) {
@@ -207,9 +222,10 @@ export class ScanLoop {
       logWarn("Price cache warm failed", { error: String(e) })
     );
 
-    if (ENV.POLYGON_WS_URL) {
+    const poolWs = this.rpcPool.bestWebSocket();
+    if (poolWs) {
       try {
-        this.ws = new WebSocketProvider(ENV.POLYGON_WS_URL);
+        this.ws = poolWs;
         await new Promise<void>((resolve, reject) => {
           const t = setTimeout(() => reject(new Error("WS timeout")), 8_000);
           this.ws!.once("block", () => { clearTimeout(t); resolve(); });
@@ -264,20 +280,24 @@ export class ScanLoop {
 
     this.priceFeed.flushCache();
 
-    const [feeData, maticUsd] = await Promise.all([
-      this.http.getFeeData().catch(() => null),
-      this.priceFeed.getPrice(FEEDS.MATIC_USD, 0.9),
-    ]);
+    const maticUsd = await this.priceFeed.getPrice(FEEDS.MATIC_USD, 0.9).catch(() => 0.05);
+    const ethUsd   = await this.priceFeed.getPrice(FEEDS.ETH_USD, 0.95).catch(() => 1900);
 
-    const gasPrice     = feeData?.gasPrice ?? 100_000_000_000n;
-    const gasPriceGwei = Number(formatUnits(gasPrice, "gwei"));
+    // Refresh gas bidder with latest block history, then compute dynamic bid
+    await this.gasBidder.refresh(this.http).catch(() => {});
+    const regime: Regime = this.lastHMMState?.regime ?? "WARM";
+    const bid = this.gasBidder.computeBid(regime);
+    const gasPriceGwei = bid.totalGwei;
+    const gasPrice     = BigInt(Math.round(gasPriceGwei * 1_000_000_000));
 
     if (gasPriceGwei > MAX_GAS_GWEI) {
-      logWarn("Gas too high", { gasPriceGwei, max: MAX_GAS_GWEI });
+      logWarn("Gas too high", { gasPriceGwei, max: MAX_GAS_GWEI, capped: bid.capped });
+      this._writeRuntimeState(blockNumber, maticUsd, ethUsd);
       return;
     }
 
     const gasCostUsd = Number(formatUnits(gasPrice * BigInt(ESTIMATED_GAS_UNITS), 18)) * maticUsd;
+    this._writeRuntimeState(blockNumber, maticUsd, ethUsd);
 
     // Scan all pairs concurrently
     const results = await Promise.all(
@@ -617,6 +637,24 @@ export class ScanLoop {
         this.nonceMgr!.commit();
         logInfo("Tx submitted", { hash: tx.hash, pair: r.pair.name });
 
+        // Route through MEV relay (private mempool) — fall back to public if it fails
+        let relay: RelayName = "public";
+        try {
+          const signedRaw = await this.wallet!.signTransaction({
+            to: this.flashLoan!.target,
+            data: tx.data,
+            gasPrice,
+            gasLimit: BigInt(ESTIMATED_GAS_UNITS) + 100_000n,
+            nonce,
+            chainId: 137,
+          });
+          const relayed = await this.mevRouter.submitRawTransaction(signedRaw, tx.hash);
+          if (relayed && relayed.relay !== "public") {
+            relay = relayed.relay;
+            logInfo("MEV relay accepted", { relay, hash: tx.hash });
+          }
+        } catch (e) { /* swallow — public fallback */ }
+
         const receipt = await tx.wait(1);
         this.executing = false;
 
@@ -624,10 +662,11 @@ export class ScanLoop {
           logInfo("Trade success", {
             hash: tx.hash, gasUsed: receipt.gasUsed.toString(),
             block: receipt.blockNumber, net: `$${r.netProfitUsd.toFixed(2)}`,
+            relay,
           });
           return { hash: tx.hash, status: "success" };
         }
-        logWarn("Tx reverted", { hash: tx.hash });
+        logWarn("Tx reverted", { hash: tx.hash, relay });
         return { hash: tx.hash, status: "reverted" };
 
       } catch (err: unknown) {
@@ -648,6 +687,42 @@ export class ScanLoop {
     }
     this.executing = false;
     return { hash: "", status: "pending", error: "max retries" };
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Runtime state — write to dashboard/runtime.json so FastAPI can serve it
+  // ──────────────────────────────────────────────────────────────────────────
+
+  private _writeRuntimeState(blockNumber: number, maticUsd: number, ethUsd: number): void {
+    try {
+      const state = {
+        updatedAt:           new Date().toISOString(),
+        status:              "RUNNING",
+        lastBlock:           blockNumber,
+        lastBlockAt:         new Date().toISOString(),
+        rpcAlive:            this.rpcPool.countAlive(),
+        rpcTotal:            this.rpcPool.total(),
+        rpcHealth:           this.rpcPool.snapshot(),
+        wsSubscriptions:     this.ws ? 1 : 0,
+        hmmRegime:           this.lastHMMState?.regime ?? "UNKNOWN",
+        hmmConfidence:       this.lastHMMState ? Number(this.lastHMMState.confidence.toFixed(3)) : 0,
+        activeRelay:         this.mevRouter.getLastUsedRelay(),
+        relayStats:          this.mevRouter.getStats(),
+        lastGasBid:          this.gasBidder.getLastBid(),
+        gasHistory:          this.gasBidder.snapshot().slice(-30),
+        lastOpportunityAt:   this.sessionOpps > 0 ? new Date().toISOString() : null,
+        sessionOpps:         this.sessionOpps,
+        sessionTrades:       this.sessionTrades,
+        sessionProfitUsd:    Number(this.sessionProfit.toFixed(2)),
+        maticPrice:          maticUsd,
+        ethPrice:            ethUsd,
+        configReloadRequired: false,
+      };
+      const outPath = path.resolve(__dirname, "..", "..", "dashboard", "runtime.json");
+      fs.writeFileSync(outPath, JSON.stringify(state, null, 2));
+    } catch (e) {
+      logDebug("runtime-state write failed", { error: String(e) });
+    }
   }
 
   // ──────────────────────────────────────────────────────────────────────────
