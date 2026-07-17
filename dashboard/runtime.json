@@ -1,53 +1,178 @@
 {
-  "updatedAt": "2026-07-16T12:50:00.000Z",
-  "status": "STANDBY",
-  "lastBlock": 90315600,
-  "lastBlockAt": "2026-07-16T12:50:00.000Z",
-  "rpcAlive": 12,
-  "rpcTotal": 14,
+  "updatedAt": "2026-07-17T04:57:02.514Z",
+  "status": "RUNNING",
+  "lastBlock": 90372816,
+  "lastBlockAt": "2026-07-17T04:57:02.514Z",
+  "rpcAlive": 1,
+  "rpcTotal": 1,
   "rpcHealth": [
-    {"url": "https://polygon-rpc.com", "alive": true, "latencyMs": 88, "isWs": false, "failCount": 0},
-    {"url": "https://rpc.ankr.com/polygon", "alive": true, "latencyMs": 142, "isWs": false, "failCount": 0},
-    {"url": "https://polygon-bor-rpc.publicnode.com", "alive": true, "latencyMs": 105, "isWs": false, "failCount": 0},
-    {"url": "https://1rpc.io/matic", "alive": true, "latencyMs": 220, "isWs": false, "failCount": 0},
-    {"url": "https://polygon.llamarpc.com", "alive": true, "latencyMs": 178, "isWs": false, "failCount": 0},
-    {"url": "https://polygon.drpc.org", "alive": true, "latencyMs": 156, "isWs": false, "failCount": 0},
-    {"url": "https://polygon.blockpi.network/v1/rpc/public", "alive": true, "latencyMs": 96, "isWs": false, "failCount": 0},
-    {"url": "https://polygon.publicnode.com", "alive": true, "latencyMs": 113, "isWs": false, "failCount": 0},
-    {"url": "https://polygon-bor.publicnode.com", "alive": true, "latencyMs": 121, "isWs": false, "failCount": 0},
-    {"url": "https://rpc-polygon.cryptexia.com", "alive": true, "latencyMs": 312, "isWs": false, "failCount": 0},
-    {"url": "https://polygon.public-rpc.com", "alive": true, "latencyMs": 168, "isWs": false, "failCount": 0},
-    {"url": "https://polygon-mainnet.public.blastapi.io", "alive": true, "latencyMs": 184, "isWs": false, "failCount": 0},
-    {"url": "wss://polygon-bor-rpc.publicnode.com", "alive": false, "latencyMs": 9999, "isWs": true, "failCount": 2},
-    {"url": "wss://polygon-rpc.com", "alive": false, "latencyMs": 9999, "isWs": true, "failCount": 3}
+    {
+      "url": "https://polygon-mainnet.g.alchemy.com/v2/WKn526I0ulDQICUtzwYMd",
+      "alive": true,
+      "latencyMs": 24,
+      "isWs": false,
+      "failCount": 0
+    }
   ],
   "wsSubscriptions": 0,
-  "hmmRegime": "HOT",
-  "hmmConfidence": 0.84,
-  "activeRelay": "fastlane",
+  "hmmRegime": "WARM",
+  "hmmConfidence": 0.34,
+  "activeRelay": "public",
   "relayStats": {
-    "fastlane":  {"attempts": 0, "successes": 0, "failures": 0},
-    "merkle":    {"attempts": 0, "successes": 0, "failures": 0},
-    "flashbots": {"attempts": 0, "successes": 0, "failures": 0},
-    "public":    {"attempts": 0, "successes": 0, "failures": 0}
+    "fastlane": {
+      "attempts": 0,
+      "successes": 0,
+      "failures": 0
+    },
+    "merkle": {
+      "attempts": 0,
+      "successes": 0,
+      "failures": 0
+    },
+    "flashbots": {
+      "attempts": 0,
+      "successes": 0,
+      "failures": 0
+    },
+    "public": {
+      "attempts": 0,
+      "successes": 0,
+      "failures": 0
+    }
   },
   "lastGasBid": {
-    "baseFee": 28.4,
-    "priorityFee": 35.0,
-    "totalGwei": 63.4,
-    "competitorEstimate": 30.0,
-    "capped": false
+    "baseFee": 249.467918161,
+    "priorityFee": 340.53313718519996,
+    "totalGwei": 350,
+    "competitorEstimate": 340.53313718519996
   },
   "gasHistory": [
-    {"blockNumber": 90315580, "baseFeeGwei": 25.2, "priorityFeeGwei": 28, "gasUsedRatio": 0.62},
-    {"blockNumber": 90315585, "baseFeeGwei": 26.1, "priorityFeeGwei": 30, "gasUsedRatio": 0.68},
-    {"blockNumber": 90315590, "baseFeeGwei": 27.5, "priorityFeeGwei": 33, "gasUsedRatio": 0.74},
-    {"blockNumber": 90315595, "baseFeeGwei": 28.0, "priorityFeeGwei": 29, "gasUsedRatio": 0.66},
-    {"blockNumber": 90315600, "baseFeeGwei": 28.4, "priorityFeeGwei": 31, "gasUsedRatio": 0.71}
+    {
+      "blockNumber": 90372797,
+      "baseFeeGwei": 249.568857985,
+      "priorityFeeGwei": 247.019987607,
+      "gasUsedRatio": 0.23194570625
+    },
+    {
+      "blockNumber": 90372798,
+      "baseFeeGwei": 251.699180518,
+      "priorityFeeGwei": 400,
+      "gasUsedRatio": 0.1377997125
+    },
+    {
+      "blockNumber": 90372799,
+      "baseFeeGwei": 248.540578919,
+      "priorityFeeGwei": 444.567803467,
+      "gasUsedRatio": 0.17930775
+    },
+    {
+      "blockNumber": 90372800,
+      "baseFeeGwei": 249.299346122,
+      "priorityFeeGwei": 237.096,
+      "gasUsedRatio": 0.2610604625
+    },
+    {
+      "blockNumber": 90372801,
+      "baseFeeGwei": 252.183439942,
+      "priorityFeeGwei": 323.954057595,
+      "gasUsedRatio": 0.21326654375
+    },
+    {
+      "blockNumber": 90372802,
+      "baseFeeGwei": 249.443571252,
+      "priorityFeeGwei": 321.978,
+      "gasUsedRatio": 0.19805900625
+    },
+    {
+      "blockNumber": 90372803,
+      "baseFeeGwei": 250.692322309,
+      "priorityFeeGwei": 443.884739814,
+      "gasUsedRatio": 0.1867101625
+    },
+    {
+      "blockNumber": 90372804,
+      "baseFeeGwei": 247.820049511,
+      "priorityFeeGwei": 266.49,
+      "gasUsedRatio": 0.24436030625
+    },
+    {
+      "blockNumber": 90372805,
+      "baseFeeGwei": 250.255921986,
+      "priorityFeeGwei": 304,
+      "gasUsedRatio": 0.21576406875
+    },
+    {
+      "blockNumber": 90372806,
+      "baseFeeGwei": 247.550946329,
+      "priorityFeeGwei": 266.49,
+      "gasUsedRatio": 0.222120675
+    },
+    {
+      "blockNumber": 90372807,
+      "baseFeeGwei": 249.410690219,
+      "priorityFeeGwei": 408.878297839,
+      "gasUsedRatio": 0.21827891875
+    },
+    {
+      "blockNumber": 90372808,
+      "baseFeeGwei": 251.184595662,
+      "priorityFeeGwei": 408.878297839,
+      "gasUsedRatio": 0.23500406875
+    },
+    {
+      "blockNumber": 90372809,
+      "baseFeeGwei": 248.577456935,
+      "priorityFeeGwei": 362,
+      "gasUsedRatio": 0.1959684875
+    },
+    {
+      "blockNumber": 90372810,
+      "baseFeeGwei": 249.767741281,
+      "priorityFeeGwei": 251.667,
+      "gasUsedRatio": 0.250907
+    },
+    {
+      "blockNumber": 90372811,
+      "baseFeeGwei": 252.393086434,
+      "priorityFeeGwei": 362,
+      "gasUsedRatio": 0.23796181875
+    },
+    {
+      "blockNumber": 90372812,
+      "baseFeeGwei": 249.790067626,
+      "priorityFeeGwei": 394.429513087,
+      "gasUsedRatio": 0.16559621875
+    },
+    {
+      "blockNumber": 90372813,
+      "baseFeeGwei": 250.195878098,
+      "priorityFeeGwei": 394.429513087,
+      "gasUsedRatio": 0.14020568125
+    },
+    {
+      "blockNumber": 90372814,
+      "baseFeeGwei": 247.069578296,
+      "priorityFeeGwei": 247.35675,
+      "gasUsedRatio": 0.20437953125
+    },
+    {
+      "blockNumber": 90372815,
+      "baseFeeGwei": 248.469112447,
+      "priorityFeeGwei": 319,
+      "gasUsedRatio": 0.18859045
+    },
+    {
+      "blockNumber": 90372816,
+      "baseFeeGwei": 249.467918161,
+      "priorityFeeGwei": 256.692,
+      "gasUsedRatio": 0.25346041875
+    }
   ],
-  "lastOpportunityAt": "2026-07-15T15:12:58.000Z",
-  "maticPrice": 0.0838,
-  "ethPrice": 1931,
-  "btcPrice": 65370,
+  "lastOpportunityAt": "2026-07-17T04:57:02.514Z",
+  "sessionOpps": 46,
+  "sessionTrades": 0,
+  "sessionProfitUsd": 0,
+  "maticPrice": 0.08236792,
+  "ethPrice": 1848.69,
   "configReloadRequired": false
 }
