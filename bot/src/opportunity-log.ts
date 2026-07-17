@@ -23,6 +23,7 @@ export interface OpportunityRecord {
   gasCostUsd:    number;
   aaveFeeUsd:    number;
   netProfitUsd:  number;
+  slippagePct?:  number;
   gasGwei?:      number;
   signal?:       "EXECUTE" | "VERIFY_DEPTH" | "MARGINAL";
   buyDex?:       string;   // which DEX to buy on (cheaper)

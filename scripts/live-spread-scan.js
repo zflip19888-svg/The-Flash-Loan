@@ -310,14 +310,26 @@ async function main() {
     );
     const isPhantom = isStablePair && spreadPct !== null && spreadPct > 20;
 
+    // ── 8b. Universal phantom guard (fix for issues #40–42) ───────────────────
+    // Compute spread vs LOAN NOTIONAL (not pool depth). >5% = phantom.
+    const loanNotionalUsdCalc = priceIn ? amount * priceIn : 0;
+    const spreadPctOfLoan = (spreadUsd !== null && loanNotionalUsdCalc > 0)
+      ? (spreadUsd / loanNotionalUsdCalc) * 100 : 0;
+    const isPhantomUniversal = spreadPctOfLoan > 5.0;  // 5% cap
+    const isFlat = spreadPctOfLoan < 0.05;  // 0.05% floor
+
     // ── 9. Tiered signal classification ──────────────────────────────────────
     const minDepthSide = Math.min(qsDepthUsd, ssDepthUsd);
     const depthOk      = minDepthSide >= MIN_RESERVE_USD;
     const depthWarning = !depthOk ? ` ⚠️ thin ($${(minDepthSide/1000).toFixed(0)}K)` : "";
 
     let signal;
-    if (isPhantom) {
+    if (isPhantomUniversal) {
+      signal = "👻 PHANTOM%";
+    } else if (isPhantom) {
       signal = "👻 PHANTOM";
+    } else if (isFlat) {
+      signal = "⚪ FLAT";
     } else if (depthOk && netProfitAdj !== null && netProfitAdj > 2) {
       signal = "🟢 EXECUTE";
     } else if (!depthOk && netProfitAdj !== null && netProfitAdj > 2) {
@@ -335,8 +347,8 @@ async function main() {
     const cheaperDex = qsF && ssF ? (qsF > ssF ? "QS" : "SS") : "—";
 
     results.push({
-      pair: pairLabel, amount, signal, spreadPct, spreadUsd, netProfit,
-      netProfitAdj, slippageEst, isPhantom,
+      pair: pairLabel, amount, signal, spreadPct, spreadPctOfLoan, spreadUsd, netProfit,
+      netProfitAdj, slippageEst, isPhantom, isPhantomUniversal,
       qsDepthUsd, ssDepthUsd, cheaperDex, qsF, ssF,
     });
 

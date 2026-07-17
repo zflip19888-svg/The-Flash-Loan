@@ -37,6 +37,14 @@ import {
   DEAD_POOL_FLOOR_USD,
   STABLECOIN_MAX_SPREAD_PCT,
 } from "./config";
+
+// ── Slippage + phantom guards (Fix for issues #40–42) ────────────────────────
+/** Min spread relative to LOAN NOTIONAL to consider a pair (0.05%) */
+const MIN_SPREAD_OF_LOAN_PCT = 0.05;
+/** Max spread relative to loan notional — anything higher is phantom (5%) */
+const MAX_SPREAD_OF_LOAN_PCT  = 5.0;
+/** Cap effective trade size to this fraction of the shallower pool's depth */
+const MAX_TRADE_TO_DEPTH_RATIO = 0.10;
 import { logInfo, logWarn, logError, logDebug } from "./logger";
 import { NonceManager }                          from "./nonce-manager";
 import { ChainlinkPriceFeed, FEEDS }             from "./price-feed";
@@ -108,8 +116,10 @@ interface PairResult {
   cheaperDex:    string;   // router address
   expensiveDex:  string;   // router address
   spread:        bigint;   // in tokenOut units
-  viable:        boolean;
-  source:        SpreadSource;
+  viable:          boolean;
+  source:          SpreadSource;
+  spreadPctOfLoan?: number;
+  slippagePct?:     number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -358,12 +368,13 @@ export class ScanLoop {
         pair:         r.pair.name,
         qsDepthUsd:   r.qsDepthUsd,
         ssDepthUsd:   r.ssDepthUsd,
-        spreadPct:    r.spreadUsd / (r.qsDepthUsd || 1) * 100,
+        spreadPct:    r.spreadPctOfLoan ?? (r.spreadUsd / (r.qsDepthUsd || 1) * 100),
         spreadUsd:    r.spreadUsd,
         netUsd:       r.netProfitUsd,
         gasCostUsd:   r.gasCostUsd,
         aaveFeeUsd:   r.aaveFeeUsd,
         netProfitUsd: r.netProfitUsd,
+        slippagePct:  r.slippagePct,
         gasGwei:      Number((gasPrice / 1_000_000_000n)),
         signal:       _signal,
         buyDex:       dexLabel(r.cheaperDex),
@@ -516,21 +527,51 @@ export class ScanLoop {
         }
       }
 
-      // ── Profit calc ────────────────────────────────────────────────────────
-      const spreadUsd    = parseFloat(formatUnits(spread, outDec)) * (tokenOutUsd || 1);
-      const loanNotional = parseFloat(formatUnits(pair.loanAmount, inDec)) * tokenInUsd;
-      const aaveFeeUsd   = loanNotional * 0.0005;
-      const netProfitUsd = spreadUsd - gasCostUsd - aaveFeeUsd;
+      // ── Profit calc (Fix: slippage-adjusted + phantom guard vs loan notional) ─
+      const spreadUsd     = parseFloat(formatUnits(spread, outDec)) * (tokenOutUsd || 1);
+      const loanNotional   = parseFloat(formatUnits(pair.loanAmount, inDec)) * tokenInUsd;
+      if (loanNotional <= 0) return null;
+
+      // Real spread % relative to LOAN NOTIONAL (not pool depth — that was the bug)
+      const spreadPctOfLoan = (spreadUsd / loanNotional) * 100;
+
+      // Universal phantom guard: >5% spread vs loan = pool imbalance, not real arb
+      if (spreadPctOfLoan > MAX_SPREAD_OF_LOAN_PCT) {
+        logDebug(`Phantom spread skip (universal) — ${pair.name}`, {
+          spreadPctOfLoan: spreadPctOfLoan.toFixed(2),
+          max: MAX_SPREAD_OF_LOAN_PCT,
+          qsDep: qsDep.toFixed(0), ssDep: ssDep.toFixed(0),
+        });
+        return null;
+      }
+      // Too-flat guard: <0.05% spread vs loan — not worth the gas
+      if (spreadPctOfLoan < MIN_SPREAD_OF_LOAN_PCT) {
+        logDebug(`Spread too flat — ${pair.name}`, { spreadPctOfLoan: spreadPctOfLoan.toFixed(3) });
+        return null;
+      }
+
+      // Slippage estimation: trade size / shallower pool depth
+      const shallowerDepth = Math.min(qsDep, ssDep);
+      const slippagePct     = shallowerDepth > 0
+        ? Math.min(100, (loanNotional / shallowerDepth) * 100)
+        : 100;
+      // If trade would consume >10% of pool, the CP-formula quote is unreliable
+      // — model the slippage drag as half the spread × slippage%
+      const slippageDrag    = spreadUsd * (slippagePct / 100) * 0.5;
+      const aaveFeeUsd      = loanNotional * 0.0005;
+      const netProfitUsd    = spreadUsd - gasCostUsd - aaveFeeUsd - slippageDrag;
 
       logDebug(`Evaluated ${pair.name}`, {
         source, qsDep: qsDep.toFixed(0), ssDep: ssDep.toFixed(0),
-        spreadUsd: spreadUsd.toFixed(2), net: netProfitUsd.toFixed(2),
+        spreadUsd: spreadUsd.toFixed(2), spreadPctOfLoan: spreadPctOfLoan.toFixed(2),
+        slippagePct: slippagePct.toFixed(1), net: netProfitUsd.toFixed(2),
       });
 
       return {
         pair, qsDepthUsd: qsDep, ssDepthUsd: ssDep,
         qsOut, ssOut, spreadUsd, gasCostUsd, aaveFeeUsd, netProfitUsd,
         cheaperDex, expensiveDex, spread,
+        spreadPctOfLoan, slippagePct,
         viable: netProfitUsd >= MIN_PROFIT_USD,
         source,
       };
