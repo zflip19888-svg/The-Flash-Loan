@@ -1,0 +1,42 @@
+[
+  {
+    "severity": "CRITICAL",
+    "type": "Scanner Inactivity Gap",
+    "description": "~27-day gap with zero logs from June 16 to July 11. Recent week also missing logs for July 16 and July 18 (today). Scanner is not running consistently."
+  },
+  {
+    "severity": "CRITICAL",
+    "type": "Integer Overflow in Profit Calculation",
+    "description": "2026-07-14 log: pair '10 WETH→WMATIC' reports spread_usd and net_profit_usd of ~4.1 quadrillion USD (41332483421040300). Clear precision/overflow bug in spread calculation."
+  },
+  {
+    "severity": "HIGH",
+    "type": "Stale Oracle Signal",
+    "description": "2026-07-17 log: 7 consecutive scans of WMATIC→USDC (20K) across blocks 90380123-90380135 with IDENTICAL depth values (qsDepthUsd=273783, ssDepthUsd=40847), identical spreadPct=3.259%, identical spreadUsd=53.58. Only timestamp/block/hmmConfidence change. Market data is frozen but EXECUTE signals keep firing."
+  },
+  {
+    "severity": "HIGH",
+    "type": "DAI Phantom Spread",
+    "description": "2026-06-14 and 2026-06-15 logs: DAI→USDC and USDC→DAI both show ~35.5% spreads with $3,300+ net profit. DAI and USDC are both $1-pegged stablecoins — a 35% spread is physically impossible. Caused by stale oracle or thin SushiSwap liquidity ($15K depth) being misinterpreted as real spread."
+  },
+  {
+    "severity": "HIGH",
+    "type": "Zero-Liquidity Pair Flagged as Viable",
+    "description": "2026-06-13 log: WBTC→USDC has ss_depth_usd=0 (zero SushiSwap liquidity) but reports spread_usd=10623.43, net_profit_usd=10617.05, spread_pct=98.15%, signal=VERIFY_DEPTH. Zero liquidity means zero executable opportunity — this should be filtered out, not flagged."
+  },
+  {
+    "severity": "MEDIUM",
+    "type": "Failed Executions Logged as Executed",
+    "description": "2026-07-12 log: 3 transactions with executed=true but txStatus=pending and error 'could not decode result data (value=0x, method=resolver, code=BAD_DATA)'. Failed txs are being logged as successful executions."
+  },
+  {
+    "severity": "MEDIUM",
+    "type": "Duplicate Timestamp Scans",
+    "description": "2026-07-15 log: All 5 entries share identical timestamp (2026-07-16T04:56:05.107Z) and block (90315179). Single snapshot is being logged 5× as if separate scans, inflating scan count."
+  },
+  {
+    "severity": "LOW",
+    "type": "High-Slippage EXECUTE Signals",
+    "description": "2026-07-15 log: WETH→USDC entries with 38-57% slippage flagged as EXECUTE. 10 WETH: slippagePct=38.2% vs spreadPct=26.2%. 15 WETH: slippagePct=57.3% vs spreadPct=34.5%. Slippage exceeds spread — these would lose money if executed."
+  }
+]
