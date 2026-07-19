@@ -45,6 +45,10 @@ const MIN_SPREAD_OF_LOAN_PCT = 0.05;
 const MAX_SPREAD_OF_LOAN_PCT  = 5.0;
 /** Cap effective trade size to this fraction of the shallower pool's depth */
 const MAX_TRADE_TO_DEPTH_RATIO = 0.10;
+/** Hard cap on raw spread USD — rejects overflow/garbage oracle values */
+const MAX_SPREAD_USD_ABSOLUTE = 100_000;
+/** Stale oracle: reject if same pair returns identical spread for N consecutive blocks */
+const STALE_ORACLE_BLOCK_THRESHOLD = 3;
 import { logInfo, logWarn, logError, logDebug } from "./logger";
 import { NonceManager }                          from "./nonce-manager";
 import { ChainlinkPriceFeed, FEEDS }             from "./price-feed";
@@ -162,6 +166,8 @@ export class ScanLoop {
   private running       = false;
   private executing     = false;
   private blocksScanned = 0;
+  // Stale oracle detection: track last spread per pair across blocks
+  private lastPairSpread = new Map<string, { spread: bigint; count: number; block: number }>();
   private lastBlock     = 0;
 
   private dailyPnL      = 0;
@@ -311,7 +317,7 @@ export class ScanLoop {
 
     // Scan all pairs concurrently
     const results = await Promise.all(
-      TOKEN_PAIRS.map((p) => this._scanPair(p, gasPrice, maticUsd, gasCostUsd))
+      TOKEN_PAIRS.map((p) => this._scanPair(p, gasPrice, maticUsd, gasCostUsd, blockNumber))
     );
 
     const viable = results.filter((r): r is PairResult => r !== null && r.viable);
@@ -415,7 +421,7 @@ export class ScanLoop {
 
       if (this.flashLoan && this.nonceMgr && this.wallet && !DRY_RUN && !hmmBlocked) {
         const txResult = await this._execute(r, gasPrice, gasCostUsd);
-        record.executed = true;
+        record.executed = (txResult.status === "success");
         record.txHash   = txResult.hash;
         record.txStatus = txResult.status;
         if (txResult.error) record.error = txResult.error;
@@ -446,6 +452,7 @@ export class ScanLoop {
     gasPrice:   bigint,
     maticUsd:   number,
     gasCostUsd: number,
+    blockNumber: number,
   ): Promise<PairResult | null> {
     try {
       const inDec  = decimalsOf(pair.tokenIn);
@@ -511,6 +518,30 @@ export class ScanLoop {
       }
 
       if (spread === 0n) return null;
+
+      // ── Overflow guard: reject absurd spreads (fix for $41 quadrillion bug) ──
+      const spreadAbsUsd = parseFloat(formatUnits(spread, outDec)) * (tokenOutUsd || 1);
+      if (spreadAbsUsd > MAX_SPREAD_USD_ABSOLUTE) {
+        logDebug(`Overflow guard skip — ${pair.name}`, {
+          spreadAbsUsd: spreadAbsUsd.toExponential(3), cap: MAX_SPREAD_USD_ABSOLUTE,
+        });
+        return null;
+      }
+
+      // ── Stale oracle: same spread across N blocks = frozen feed ──
+      const prevEntry = this.lastPairSpread.get(pair.name);
+      if (prevEntry && prevEntry.spread === spread) {
+        const newCount = prevEntry.count + 1;
+        this.lastPairSpread.set(pair.name, { spread, count: newCount, block: blockNumber });
+        if (newCount >= STALE_ORACLE_BLOCK_THRESHOLD) {
+          logDebug(`Stale oracle skip — ${pair.name}`, {
+            repeatCount: newCount, spread: spread.toString(),
+          });
+          return null;
+        }
+      } else {
+        this.lastPairSpread.set(pair.name, { spread, count: 1, block: blockNumber });
+      }
 
       // ── Stablecoin phantom spread guard ────────────────────────────────────
       // If the pair is stablecoin↔stablecoin and spread > 20%, it's pool imbalance, not real arb

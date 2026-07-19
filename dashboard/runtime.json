@@ -1,8 +1,8 @@
 {
-  "updatedAt": "2026-07-17T08:00:01.237Z",
+  "updatedAt": "2026-07-19T00:24:57.957Z",
   "status": "RUNNING",
-  "lastBlock": 90380135,
-  "lastBlockAt": "2026-07-17T08:00:01.237Z",
+  "lastBlock": 90477131,
+  "lastBlockAt": "2026-07-19T00:24:57.957Z",
   "rpcAlive": 1,
   "rpcTotal": 1,
   "rpcHealth": [
@@ -16,7 +16,7 @@
   ],
   "wsSubscriptions": 0,
   "hmmRegime": "COLD",
-  "hmmConfidence": 0.895,
+  "hmmConfidence": 0.892,
   "activeRelay": "public",
   "relayStats": {
     "fastlane": {
@@ -41,138 +41,138 @@
     }
   },
   "lastGasBid": {
-    "baseFee": 249.48469335,
-    "priorityFee": 311.37453114029995,
+    "baseFee": 251.125712462,
+    "priorityFee": 238.35616002172503,
     "totalGwei": 350,
-    "competitorEstimate": 415.1660415204
+    "competitorEstimate": 317.8082133623
   },
   "gasHistory": [
     {
-      "blockNumber": 90380116,
-      "baseFeeGwei": 248.523526861,
-      "priorityFeeGwei": 444.740481749,
-      "gasUsedRatio": 0.26869941875
+      "blockNumber": 90477112,
+      "baseFeeGwei": 249.276047745,
+      "priorityFeeGwei": 320,
+      "gasUsedRatio": 0.6351824875
     },
     {
-      "blockNumber": 90380117,
-      "baseFeeGwei": 251.596401671,
-      "priorityFeeGwei": 444.740481749,
-      "gasUsedRatio": 0.1822353875
+      "blockNumber": 90477113,
+      "baseFeeGwei": 261.739850132,
+      "priorityFeeGwei": 457.113,
+      "gasUsedRatio": 0.23569146875
     },
     {
-      "blockNumber": 90380118,
-      "baseFeeGwei": 248.688640211,
-      "priorityFeeGwei": 447.133445455,
-      "gasUsedRatio": 0.2180950125
+      "blockNumber": 90477114,
+      "baseFeeGwei": 259.027170548,
+      "priorityFeeGwei": 317.288,
+      "gasUsedRatio": 0.49189233125
     },
     {
-      "blockNumber": 90380119,
-      "baseFeeGwei": 250.45264605,
-      "priorityFeeGwei": 447.133445455,
-      "gasUsedRatio": 0.159631225
+      "blockNumber": 90477115,
+      "baseFeeGwei": 257.823921874,
+      "priorityFeeGwei": 375.8924,
+      "gasUsedRatio": 0.52713364375
     },
     {
-      "blockNumber": 90380120,
-      "baseFeeGwei": 247.43173557,
-      "priorityFeeGwei": 447.133445455,
-      "gasUsedRatio": 0.180772025
+      "blockNumber": 90477116,
+      "baseFeeGwei": 256.829076296,
+      "priorityFeeGwei": 360.4679,
+      "gasUsedRatio": 0.36249554375
     },
     {
-      "blockNumber": 90380121,
-      "baseFeeGwei": 248.224858023,
-      "priorityFeeGwei": 447.133445455,
-      "gasUsedRatio": 0.1890788
+      "blockNumber": 90477117,
+      "baseFeeGwei": 254.89423349,
+      "priorityFeeGwei": 326,
+      "gasUsedRatio": 0.23848456875
     },
     {
-      "blockNumber": 90380122,
-      "baseFeeGwei": 249.235309021,
-      "priorityFeeGwei": 447.693701552,
-      "gasUsedRatio": 0.15058318125
+      "blockNumber": 90477118,
+      "baseFeeGwei": 252.268393712,
+      "priorityFeeGwei": 336.435,
+      "gasUsedRatio": 0.43582585
     },
     {
-      "blockNumber": 90380123,
-      "baseFeeGwei": 249.250449579,
-      "priorityFeeGwei": 447.133445455,
-      "gasUsedRatio": 0.18004961875
+      "blockNumber": 90477119,
+      "baseFeeGwei": 250.78083147,
+      "priorityFeeGwei": 264.24,
+      "gasUsedRatio": 0.5350699
     },
     {
-      "blockNumber": 90380124,
-      "baseFeeGwei": 250.030645514,
-      "priorityFeeGwei": 447.693701552,
-      "gasUsedRatio": 0.15949238125
+      "blockNumber": 90477120,
+      "baseFeeGwei": 249.857587997,
+      "priorityFeeGwei": 336.435,
+      "gasUsedRatio": 0.27781424375
     },
     {
-      "blockNumber": 90380125,
-      "baseFeeGwei": 247.014050228,
-      "priorityFeeGwei": 447.693701552,
-      "gasUsedRatio": 0.19168130625
+      "blockNumber": 90477121,
+      "baseFeeGwei": 253.184187856,
+      "priorityFeeGwei": 336.435,
+      "gasUsedRatio": 0.37914354375
     },
     {
-      "blockNumber": 90380126,
-      "baseFeeGwei": 248.086536506,
-      "priorityFeeGwei": 447.693701552,
-      "gasUsedRatio": 0.2119265125
+      "blockNumber": 90477122,
+      "baseFeeGwei": 251.370889167,
+      "priorityFeeGwei": 297.505933623,
+      "gasUsedRatio": 0.30014613125
     },
     {
-      "blockNumber": 90380127,
-      "baseFeeGwei": 249.686862964,
-      "priorityFeeGwei": 447.693701552,
-      "gasUsedRatio": 0.18838845
+      "blockNumber": 90477123,
+      "baseFeeGwei": 249.127326165,
+      "priorityFeeGwei": 268.024,
+      "gasUsedRatio": 0.3209747
     },
     {
-      "blockNumber": 90380128,
-      "baseFeeGwei": 250.685310011,
-      "priorityFeeGwei": 421.803758378,
-      "gasUsedRatio": 0.158352175
+      "blockNumber": 90477124,
+      "baseFeeGwei": 253.564250108,
+      "priorityFeeGwei": 387,
+      "gasUsedRatio": 0.24329675
     },
     {
-      "blockNumber": 90380129,
-      "baseFeeGwei": 247.654436062,
-      "priorityFeeGwei": 421.803758378,
-      "gasUsedRatio": 0.2190794375
+      "blockNumber": 90477125,
+      "baseFeeGwei": 250.979347941,
+      "priorityFeeGwei": 300.524,
+      "gasUsedRatio": 0.28559891875
     },
     {
-      "blockNumber": 90380130,
-      "baseFeeGwei": 249.436501597,
-      "priorityFeeGwei": 307,
-      "gasUsedRatio": 0.1758202125
+      "blockNumber": 90477126,
+      "baseFeeGwei": 248.657782916,
+      "priorityFeeGwei": 300.524,
+      "gasUsedRatio": 0.46032253125
     },
     {
-      "blockNumber": 90380131,
-      "baseFeeGwei": 250.107387375,
-      "priorityFeeGwei": 421.803758378,
-      "gasUsedRatio": 0.18207861875
+      "blockNumber": 90477127,
+      "baseFeeGwei": 256.695711312,
+      "priorityFeeGwei": 300.524,
+      "gasUsedRatio": 0.61267068125
     },
     {
-      "blockNumber": 90380132,
-      "baseFeeGwei": 247.215959618,
-      "priorityFeeGwei": 421.803758378,
-      "gasUsedRatio": 0.17742550625
+      "blockNumber": 90477128,
+      "baseFeeGwei": 256.195330473,
+      "priorityFeeGwei": 299.3,
+      "gasUsedRatio": 0.394356525
     },
     {
-      "blockNumber": 90380133,
-      "baseFeeGwei": 247.922211997,
-      "priorityFeeGwei": 421.803758378,
-      "gasUsedRatio": 0.168940725
+      "blockNumber": 90477129,
+      "baseFeeGwei": 254.447463708,
+      "priorityFeeGwei": 360,
+      "gasUsedRatio": 0.3986059625
     },
     {
-      "blockNumber": 90380134,
-      "baseFeeGwei": 248.411360584,
-      "priorityFeeGwei": 418.450461832,
-      "gasUsedRatio": 0.1914795625
+      "blockNumber": 90477130,
+      "baseFeeGwei": 252.735656824,
+      "priorityFeeGwei": 369.5562,
+      "gasUsedRatio": 0.41462076875
     },
     {
-      "blockNumber": 90380135,
-      "baseFeeGwei": 249.48469335,
-      "priorityFeeGwei": 421.803758378,
-      "gasUsedRatio": 0.3159264125
+      "blockNumber": 90477131,
+      "baseFeeGwei": 251.125712462,
+      "priorityFeeGwei": 295.124,
+      "gasUsedRatio": 0.99990445625
     }
   ],
-  "lastOpportunityAt": "2026-07-17T08:00:01.237Z",
-  "sessionOpps": 6,
+  "lastOpportunityAt": "2026-07-19T00:24:57.957Z",
+  "sessionOpps": 2,
   "sessionTrades": 0,
   "sessionProfitUsd": 0,
-  "maticPrice": 0.08219,
-  "ethPrice": 1826.62,
+  "maticPrice": 0.08081711,
+  "ethPrice": 1860.19045555,
   "configReloadRequired": false
 }
