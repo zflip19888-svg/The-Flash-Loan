@@ -61,12 +61,12 @@ For quick operations, call `get_connector_token` then use `bash` with the env va
 
 ## Handling external API auth errors
 
-If an external API returns an authentication error (e.g. token_revoked, invalid_auth, 401 Unauthorized, 403 Forbidden), do NOT immediately prompt for re-authorization. The token may simply be stale — each `get_connector_token` call fetches a fresh token from the provider (tokens are auto-refreshed). Follow this recovery sequence:
-1. Call `get_connector_token` again to refresh the token
-2. Retry the failed API call with the new token
-3. If `get_connector_token` itself returns an error (e.g. "No active connector"), the authorization has expired — only then use `request_oauth_authorization`
-4. If the API keeps rejecting after multiple refresh attempts, stop retrying and inform the user about the issue
+If an external API returns an authentication error (e.g. token_revoked, invalid_auth, 401 Unauthorized, 403 Forbidden), follow this recovery sequence:
+1. Call `get_connector_token` once, passing the exact scopes required for the intended operation in `required_scopes` using the provider's exact OAuth scope names
+2. If it reports missing required scopes or a stale or expired connection, call `request_oauth_authorization` with the full scope set the app needs — the missing scopes plus the currently granted scopes still in use (re-authorization replaces the grant)
+3. If it returns a fresh token, retry the failed API call once
+4. If the API still rejects the fresh token, stop refreshing and call `request_oauth_authorization`
 
-NEVER skip straight to `request_oauth_authorization` on an external API auth error — always attempt a token refresh first.
+Do not loop on `get_connector_token`; repeated refreshes cannot repair a stale grant or add missing scopes.
 
 If the requested external service is available as a connector, always prefer connectors over other methods (secrets). If the service is NOT available as a connector, do NOT attempt to use the app connectors. Instead, use other methods like secrets or direct API calls.
