@@ -1,0 +1,29 @@
+
+════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+  LIVE SPREAD SCANNER  —  Polygon Mainnet
+  Block: #91294399   |   Sun, 02 Aug 2026 04:56:58 GMT
+════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+  MATIC $0.0725   ETH $1878   BTC $63540   Gas 278.3 Gwei   Est. tx cost $0.015
+  Liquidity filter: skip pair if BOTH DEXes < $15,000 | phantom guard on stablecoin spreads > 20%
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Pair                Amount In     QS Depth    QS Out        SS Out        Spread %    Spread $   Net $     Signal       
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+WETH→USDC           10 WETH       $986K / $50K18356.3663    13587.2881    25.9805%    $4769.08   $2960.82  👻 PHANTOM%
+WETH→USDC           15 WETH       $986K / $50K27280.2302    17930.8010    34.2718%    $9349.43   $4045.54  👻 PHANTOM%
+WETH→WMATIC         10 WETH       $189K / $45K235412.2134   182105.8933   22.6438%    $3863.55   $2226.29  👻 PHANTOM%
+WMATIC→USDC         20000 WMATIC  $258K / $38K1434.5658     1389.3280     3.1534%     $45.24     $42.79    🟢 EXECUTE
+WMATIC→USDC         50000 WMATIC  $258K / $38K3556.6939     3294.4982     7.3719%     $262.20    $235.68   👻 PHANTOM%
+JSON_RESULTS={"blockNumber":91294399,"gasPriceGwei":278.336874833,"gasCostUsd":0.015130050161565836,"maticUsd":0.07247836,"ethUsd":1878.07915068,"results":[{"pair":"WETH→USDC","amount":10,"signal":"👻 PHANTOM%","spreadPct":25.98051331643595,"spreadPctOfLoan":25.393382362363425,"spreadUsd":4769.078197999999,"netProfit":4759.672672196438,"netProfitAdj":2960.8172925096724,"slippageEst":37.71914204386811,"isPhantom":false,"isPhantomUniversal":true,"qsDepthUsd":985539.2545633506,"ssDepthUsd":49791.1418158917,"cheaperDex":"QS","qsF":18356.366327,"ssF":13587.288129},{"pair":"WETH→USDC","amount":15,"signal":"👻 PHANTOM%","spreadPct":34.271811906271026,"spreadPctOfLoan":33.187913213046535,"spreadUsd":9349.429178999999,"netProfit":9335.328455319737,"netProfitAdj":4045.541746842946,"slippageEst":56.578713065802155,"isPhantom":false,"isPhantomUniversal":true,"qsDepthUsd":985539.2545633506,"ssDepthUsd":49791.1418158917,"cheaperDex":"QS","qsF":27280.230192,"ssF":17930.801013},{"pair":"WETH→WMATIC","amount":10,"signal":"👻 PHANTOM%","spreadPct":22.64382095307516,"spreadPctOfLoan":20.571841484359137,"spreadUsd":3863.55465828688,"netProfit":3854.1491324833187,"netProfitAdj":2226.2922176161255,"slippageEst":42.13365822004426,"isPhantom":false,"isPhantomUniversal":true,"qsDepthUsd":188921.91371890897,"ssDepthUsd":44574.319677434054,"cheaperDex":"QS","qsF":235412.21337052784,"ssF":182105.89327323425},{"pair":"WMATIC→USDC","amount":20000,"signal":"🟢 EXECUTE","spreadPct":3.153413532663376,"spreadPctOfLoan":3.1207791539433294,"spreadUsd":45.237791000000016,"netProfit":44.49787734983845,"netProfitAdj":42.79433581587102,"slippageEst":3.765748716526459,"isPhantom":false,"isPhantomUniversal":false,"qsDepthUsd":257981.62106860644,"ssDepthUsd":38493.46595109741,"cheaperDex":"QS","qsF":1434.565766,"ssF":1389.327975},{"pair":"WMATIC→USDC","amount":50000,"signal":"👻 PHANTOM%","spreadPct":7.371893604547693,"spreadPctOfLoan":7.235144117499348,"spreadUsd":262.19569,"netProfit":260.3686009498384,"netProfitAdj":235.6845238724317,"slippageEst":9.414371791316146,"isPhantom":false,"isPhantomUniversal":true,"qsDepthUsd":257981.62106860644,"ssDepthUsd":38493.46595109741,"cheaperDex":"QS","qsF":3556.693898,"ssF":3294.498208}]}
+════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+  SUMMARY
+────────────────────────────────────────────────────────────
+  🟢 Execute now:
+     WMATIC→USDC        cheaper: QS   spread $45.24   net ~$42.79 (slip 3.8%)   QS $258K / SS $38K
+
+  Pairs scanned: 5
+  Depth filter:  skip < $15,000 per DEX side
+  Gas:           278.3 Gwei  |  est. tx $0.015
+  Timestamp:     2026-08-02T04:56:59.117Z
+════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
