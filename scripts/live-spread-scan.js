@@ -53,7 +53,7 @@ const SCAN_PAIRS = [
   // Borrow WETH → swap to USDC on QS → swap to WMATIC on SS → net spread
   { from: TOKENS.WETH,   to: TOKENS.WMATIC, amount: 10,     label: 'WETH→USDC→WMATIC (via WETH borrow)' },
   // ── WMATIC native ────────────────────────────────────────────────────────
-  { from: TOKENS.WMATIC, to: TOKENS.USDC,   amount: 35_000, label: 'WMATIC→USDC' },
+  { from: TOKENS.WMATIC, to: TOKENS.USDC,   amount: 30_000, label: 'WMATIC→USDC' },
   { from: TOKENS.WMATIC, to: TOKENS.USDC,   amount: 50_000, label: 'WMATIC→USDC (50K)' },
 ];
 
