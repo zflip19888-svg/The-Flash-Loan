@@ -113,10 +113,10 @@ export const TOKEN_PAIRS: TokenPair[] = [
     loanAmount:  50_000n * 10n ** 18n,
   },
   {
-    name:        "WMATIC→USDC (20K)",
+    name:        "WMATIC→USDC (35K)",
     tokenIn:     "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
     tokenOut:    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
-    loanAmount:  20_000n * 10n ** 18n,
+    loanAmount:  35_000n * 10n ** 18n,
   },
 ];
 
