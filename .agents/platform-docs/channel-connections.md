@@ -1,6 +1,6 @@
 # channel-connections
 
-> MUST call for WhatsApp or WhatsApp group questions; setup/use Telegram, WhatsApp groups (agent-created, invite link, max 8 numbers), LINE, Slack, and iMessage
+> MUST call for WhatsApp or WhatsApp group questions; setup/use Telegram, WhatsApp groups (agent-created, invite link, max 8 numbers), LINE, Slack, iMessage, and Phone
 
 You can be connected to messaging channels so users can message you directly.
 When the owner asks to connect a messaging channel from the builder web chat, open the inline channel widget.
@@ -15,6 +15,7 @@ Use `show_channel_connection_options` for normal messaging-channel setup request
 - Slack: call `show_channel_connection_options` with channel="slack"; the widget presents two options:
   - User connector: the agent listens to anything sent to the owner in Slack and can reply with the owner's name.
   - Channel: the Superagent lives in Slack as another user; the owner can mention it and ask it to send automations to channels.
+- Phone: call `show_channel_connection_options` with channel="phone".
 - General channel questions like "what about channels?": call `show_channel_connection_options` with channel="all".
 
 Do not send the owner to settings manually when this tool is available — the widget opens the right settings/QR/deep-link flow in the web UI.
@@ -30,7 +31,11 @@ When the owner asks to connect WhatsApp from builder web chat, call `show_channe
 
 ## WhatsApp Groups
 
-WhatsApp group UI appears only when available for the workspace/environment. Before creating a group, the owner must connect their own 1:1 WhatsApp number and send the agent a direct WhatsApp message (DM) so their number is linked. When WhatsApp groups are enabled for the app, the create-group tool is available on any interactive owner surface (web chat or a WhatsApp DM), so the owner can create their first group before any group room exists; if they aren't enabled the tool isn't registered, so tell the owner the WhatsApp group surface is unavailable rather than attempting it. The group-management tools — update group response mode and share connector setup links — are only available inside an existing WhatsApp group conversation. Non-owners are refused automatically. For OAuth from a WhatsApp group, use share_connector_setup_link instead of request_oauth_authorization, because the normal OAuth tool needs a builder UI button. Base44 WhatsApp group limits: the agent always creates a new group, shares the invite link, cannot be added to an existing WhatsApp group, and each agent-created group is limited to 8 numbers. Only if the user asks why, say this is a WhatsApp limitation.
+WhatsApp group UI appears only when available for the workspace/environment. Before creating a group, the owner must have WhatsApp connected for this app; if the owner isn't recognized yet, ask them to connect WhatsApp first. On a bring-your-own number there is no owner DM row, so the owner can't be identified from a WhatsApp DM — direct them to the builder UI to create or manage groups there. When WhatsApp groups are enabled for the app, the create-group tool is available on any interactive owner surface (web chat or a WhatsApp DM), so the owner can create their first group before any group room exists; if they aren't enabled the tool isn't registered, so tell the owner the WhatsApp group surface is unavailable rather than attempting it. The group-management tools — update group response mode and share connector setup links — are only available inside an existing WhatsApp group conversation. Non-owners are refused automatically. For OAuth from a WhatsApp group, use share_connector_setup_link instead of request_oauth_authorization, because the normal OAuth tool needs a builder UI button. Base44 WhatsApp group limits: the agent always creates a new group, shares the invite link, cannot be added to an existing WhatsApp group, and each agent-created group is limited to 8 numbers. Only if the user asks why, say this is a WhatsApp limitation.
+
+## Phone
+
+When the owner asks to connect a phone number (so the agent can make and receive calls) from builder web chat, call `show_channel_connection_options` with channel="phone". The widget is a shortcut into the phone setup flow (Settings → Channels → Phone), where the owner verifies their own number and a dedicated number is provisioned. The phone channel requires a Builder plan or above; if the widget does not appear for the owner, their plan or rollout does not include it yet — explain the plan requirement instead of retrying.
 
 ## LINE
 
