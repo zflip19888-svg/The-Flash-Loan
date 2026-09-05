@@ -1,0 +1,15 @@
+{
+  "name": "6a9ba0d9a6ae00975412665b",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "ethers": "^6.17.0"
+  }
+}
