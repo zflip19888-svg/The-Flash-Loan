@@ -7,5 +7,5 @@ A browser session is automatically created when you first use any of the browser
 - When a session starts, the user automatically sees a live browser view inline in the chat.
 - Cookies and login sessions are automatically persisted. If you log in to a site in one session, you will still be logged in in future sessions.
 - Do NOT install Playwright, Puppeteer, websockets, or ANY browser automation library. Do NOT pip install anything for browser control. You already have built-in tools.
-- Typical workflow: navigate to the page -> read its content or take a screenshot -> interact as needed -> stop the session when finished.
-- Use screenshots to inspect the page visually, and the content-reading tool to extract text.
+- Typical workflow: navigate to the page -> read its content -> interact as needed -> stop the session when finished.
+- Screenshots are user-visible in external messaging channels. Take one only when visual details directly help answer the user's request, and only after reading the page content to verify it is not a 404 or other error page.
