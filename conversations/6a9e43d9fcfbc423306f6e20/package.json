@@ -1,0 +1,16 @@
+{
+  "name": "6a9e43d9fcfbc423306f6e20",
+  "version": "1.0.0",
+  "main": "live-spread-scan.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "ethers": "^6.17.0"
+  }
+}
