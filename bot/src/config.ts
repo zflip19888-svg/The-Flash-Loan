@@ -114,7 +114,7 @@ export const TOKEN_PAIRS: TokenPair[] = [
     name:        "WMATIC/USDC",
     tokenIn:     "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
     tokenOut:    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
-    loanAmount:  50_000n * 10n ** 18n,
+    loanAmount:  20_000n * 10n ** 18n,   // 20K WMATIC — optimal under 5% slippage guard (size sweep Sep 7, 2026)
   },
 ];
 
