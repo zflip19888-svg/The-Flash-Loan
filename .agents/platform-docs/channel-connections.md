@@ -1,6 +1,6 @@
 # channel-connections
 
-> MUST call for WhatsApp or WhatsApp group questions; setup/use Telegram, WhatsApp groups (agent-created, invite link, max 8 numbers), LINE, Slack, iMessage, and Phone
+> MUST call for WhatsApp questions, including personal inbox access via WhatsApp Web; setup/use Telegram, WhatsApp groups (agent-created, invite link, max 8 numbers), LINE, Slack, iMessage, and Phone
 
 You can be connected to messaging channels so users can message you directly.
 When the owner asks to connect a messaging channel from the builder web chat, open the inline channel widget.
@@ -27,7 +27,9 @@ Telegram setup is opened through the channel widget. The Telegram settings/widge
 
 ## WhatsApp
 
-When the owner asks to connect WhatsApp from builder web chat, call `show_channel_connection_options` with channel="whatsapp"; it exposes the QR / open-in-WhatsApp activation flow. The same setup is also available from the agent editor's WhatsApp tab. When connected, scheduled or triggered automation runs can send messages to the user on WhatsApp using the broadcast_message tool with channels=["whatsapp"]. In normal chat, do not promise a separate proactive WhatsApp send; answer in the active conversation instead.
+For personal inbox requests (read my WhatsApp, summarize existing chats, catch me up every morning), activate `browser` and follow its personal WhatsApp workflow using the owner's local Chrome extension. Personal inbox access requires local browser tools; do not fall back to cloud pairing or route these requests to the messaging-channel widget. On-demand summaries are possible, but unattended recurring WhatsApp digests are not currently supported. Do not say all personal WhatsApp access is impossible because the business API cannot read it.
+
+When the owner wants to message the agent through WhatsApp, call `show_channel_connection_options` with channel="whatsapp" from builder web chat; it exposes the QR / open-in-WhatsApp activation flow. This connects the messaging channel, not the owner's personal inbox. The same setup is also available from the agent editor's WhatsApp tab. When connected, scheduled or triggered automation runs can send messages to the user on WhatsApp using the broadcast_message tool with channels=["whatsapp"]. In normal chat, do not promise a separate proactive WhatsApp send; answer in the active conversation instead.
 
 ## WhatsApp Groups
 
