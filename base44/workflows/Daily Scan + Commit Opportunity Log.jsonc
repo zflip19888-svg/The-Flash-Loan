@@ -1,0 +1,40 @@
+{
+  "name": "Daily Scan + Commit Opportunity Log",
+  "description": "I will run the live spread scan, then commit today's opportunity log (logs/opportunities-YYYY-MM-DD.jsonl) to the zflip19888-svg/The-Flash-Loan GitHub repository using $GITHUB_TOKEN_2 via the GitHub API.",
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "scheduled",
+      "events": [],
+      "schedule_mode": "recurring",
+      "cron_expression": "55 4 * * *",
+      "one_time_date": null,
+      "timezone": "UTC",
+      "interval_value": null,
+      "interval_unit": null,
+      "interval_anchor": null,
+      "ends_type": "never",
+      "ends_on_date": null,
+      "ends_after_count": null
+    }
+  },
+  "definition": {
+    "document": {
+      "dsl": "1.0.0",
+      "name": "daily_scan_commit_opportunity_log",
+      "version": "1.0",
+      "namespace": "base44"
+    },
+    "do": [
+      {
+        "run_agent_step": {
+          "call": "invoke_superagent_step",
+          "with": {
+            "message": "[Scheduled task triggered: Daily Scan + Commit Opportunity Log]\nDescription: I will run the live spread scan, then commit today's opportunity log (logs/opportunities-YYYY-MM-DD.jsonl) to the zflip19888-svg/The-Flash-Loan GitHub repository using $GITHUB_TOKEN_2 via the GitHub API.\nContext: {\"repo\": \"zflip19888-svg/The-Flash-Loan\", \"branch\": \"main\", \"log_dir\": \"logs\", \"github_token_var\": \"GITHUB_TOKEN_3\"}"
+          },
+          "then": "end"
+        }
+      }
+    ]
+  }
+}

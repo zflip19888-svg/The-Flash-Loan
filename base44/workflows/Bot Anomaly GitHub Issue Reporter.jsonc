@@ -1,0 +1,40 @@
+{
+  "name": "Bot Anomaly GitHub Issue Reporter",
+  "description": "I will check today's opportunity log for anomalies \u2014 stale oracle signals, zero-liquidity pairs appearing as viable, DAI phantom spreads, scanner inactivity gaps. Use $GITHUB_TOKEN_2 to file a GitHub issue on zflip19888-svg/The-Flash-Loan if anomalies are found.",
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "scheduled",
+      "events": [],
+      "schedule_mode": "interval",
+      "cron_expression": null,
+      "one_time_date": null,
+      "timezone": "UTC",
+      "interval_value": 6,
+      "interval_unit": "hours",
+      "interval_anchor": "2026-05-17T05:40:33.724000",
+      "ends_type": "never",
+      "ends_on_date": null,
+      "ends_after_count": null
+    }
+  },
+  "definition": {
+    "document": {
+      "dsl": "1.0.0",
+      "name": "bot_anomaly_github_issue_reporter",
+      "version": "1.0",
+      "namespace": "base44"
+    },
+    "do": [
+      {
+        "run_agent_step": {
+          "call": "invoke_superagent_step",
+          "with": {
+            "message": "[Scheduled task triggered: Bot Anomaly GitHub Issue Reporter]\nDescription: I will check today's opportunity log for anomalies \u2014 stale oracle signals, zero-liquidity pairs appearing as viable, DAI phantom spreads, scanner inactivity gaps. Use $GITHUB_TOKEN_2 to file a GitHub issue on zflip19888-svg/The-Flash-Loan if anomalies are found.\nContext: {\"repo\": \"zflip19888-svg/The-Flash-Loan\", \"log_dir\": \"logs\", \"max_daily_loss_usd\": 100, \"alert_labels\": [\"bot-alert\", \"anomaly\"], \"github_token_var\": \"GITHUB_TOKEN_3\"}"
+          },
+          "then": "end"
+        }
+      }
+    ]
+  }
+}
