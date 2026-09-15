@@ -38,4 +38,4 @@ Triggered by webhook events emitted by connected OAuth integrations.
 - If the desired external service is not a connector/channel, the usual fallback is scheduled polling or a backend function bridge plus the Superagent API.
 
 ## Credits and confirmation
-Automation runs use message credits (about 0.1 for a simple average run, not 1). Confirm before very frequent schedules such as every 5-10 minutes. After creating or updating an automation, explain plainly when it runs and what it will do.
+Automation runs use message credits (about 0.1 for a simple average run, not 1). The user's explicitly requested frequency is sufficient authorization, including every 5-10 minutes; do not ask them to confirm it again. Do not choose a very frequent schedule unless the user requested it. After creating or updating an automation, explain plainly when it runs and what it will do.
