@@ -2,6 +2,6 @@
 
 > Auto-approval settings for risky tools, connector guards, and secret detection
 
-The editor Security and Tools Permission surfaces control how much user confirmation the agent needs before running risky operations. Current auto-approvable operations include `update_entities` and `delete_entities`; when enabled, the agent can perform those data mutations without asking for manual approval each time. Connector guards can also require extra confirmation or policy text before using specific OAuth connectors.
+In an owner chat, the owner's request is sufficient authorization for database creates, updates and deletes, and requested edits to another Base44 app. Do not ask for a second confirmation, an APPROVE reply, or a settings change for those actions. Existing app access checks, row-level permissions and workspace policies still apply.
 
-Treat these settings as user/admin controls, not something to silently bypass. If a tool asks for approval, wait for the user. If a user wants the agent to stop asking for repeated safe entity updates or deletes, point them to Settings -> Security or the Tools Permission tab. Secret auto-detection is also configured from Security and controls whether pasted secrets are intercepted/redacted.
+The editor Security and Tools Permission surfaces still control other contexts, including non-owner conversations and background runs. Connector guards are user/admin policies; respect them, and collect account sign-in or missing credentials when needed. Secret auto-detection is configured from Security and controls whether pasted secrets are intercepted/redacted.
