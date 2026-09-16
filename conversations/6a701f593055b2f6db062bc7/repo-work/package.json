@@ -1,0 +1,52 @@
+{
+  "name": "flash-loan-arbitrage-polygon",
+  "version": "1.0.0",
+  "description": "Production-ready Flash Loan Arbitrage Bot targeting Polygon — Aave v3 + QuickSwap + SushiSwap",
+  "private": true,
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "REPORT_GAS=true hardhat test",
+    "test:coverage": "hardhat coverage",
+    "test:fork": "hardhat test test/FlashLoanPolygon.fork.test.js --network hardhat",
+    "deploy:mumbai": "hardhat run scripts/deploy-polygon-mumbai.js --network mumbai",
+    "deploy:polygon": "hardhat run scripts/deploy-polygon.js --network polygon",
+    "verify:polygon": "hardhat verify --network polygon",
+    "lint": "eslint . --ext .js,.ts",
+    "lint:fix": "eslint . --ext .js,.ts --fix",
+    "format": "prettier --write '**/*.{js,ts,sol,json}'",
+    "clean": "hardhat clean && rm -rf cache artifacts",
+    "test:unit": "hardhat test test/FlashLoanSecurity.js test/FlashLoanPolygon.test.js test/Reproduction.test.js",
+    "test:gas": "REPORT_GAS=true hardhat test test/FlashLoanSecurity.js test/FlashLoanPolygon.test.js test/Reproduction.test.js",
+    "verify:check": "hardhat run scripts/verify-deployment.js --network polygon",
+    "verify:mumbai": "hardhat run scripts/verify-deployment.js --network mumbai"
+  },
+  "dependencies": {
+    "@aave/core-v3": "^1.19.3",
+    "@openzeppelin/contracts": "^5.6.1",
+    "@uniswap/v2-periphery": "^1.1.0-beta.0",
+    "ethers": "^6.16.0"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.6",
+    "@nomicfoundation/hardhat-ethers": "^3.0.5",
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@nomicfoundation/hardhat-verify": "^2.0.5",
+    "@types/chai": "^4.3.14",
+    "@types/node": "^20.12.5",
+    "chai": "^4.4.1",
+    "dotenv": "^17.4.2",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.1.3",
+    "hardhat": "^2.28.6",
+    "hardhat-gas-reporter": "^1.0.10",
+    "prettier": "^3.2.5",
+    "prettier-plugin-solidity": "^1.3.1",
+    "solidity-coverage": "^0.8.17",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

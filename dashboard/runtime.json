@@ -1,0 +1,178 @@
+{
+  "updatedAt": "2026-08-01T04:57:06.191Z",
+  "status": "RUNNING",
+  "lastBlock": 91236803,
+  "lastBlockAt": "2026-08-01T04:57:06.191Z",
+  "rpcAlive": 1,
+  "rpcTotal": 1,
+  "rpcHealth": [
+    {
+      "url": "https://polygon-mainnet.g.alchemy.com/v2/WKn526I0ulDQICUtzwYMd",
+      "alive": true,
+      "latencyMs": 37,
+      "isWs": false,
+      "failCount": 0
+    }
+  ],
+  "wsSubscriptions": 0,
+  "hmmRegime": "COLD",
+  "hmmConfidence": 0.91,
+  "activeRelay": "public",
+  "relayStats": {
+    "fastlane": {
+      "attempts": 0,
+      "successes": 0,
+      "failures": 0
+    },
+    "merkle": {
+      "attempts": 0,
+      "successes": 0,
+      "failures": 0
+    },
+    "flashbots": {
+      "attempts": 0,
+      "successes": 0,
+      "failures": 0
+    },
+    "public": {
+      "attempts": 0,
+      "successes": 0,
+      "failures": 0
+    }
+  },
+  "lastGasBid": {
+    "baseFee": 251.727368335,
+    "priorityFee": 245.42923848914998,
+    "totalGwei": 350,
+    "competitorEstimate": 327.2389846522
+  },
+  "gasHistory": [
+    {
+      "blockNumber": 91236784,
+      "baseFeeGwei": 247.251792629,
+      "priorityFeeGwei": 150.304,
+      "gasUsedRatio": 0.23248550625
+    },
+    {
+      "blockNumber": 91236785,
+      "baseFeeGwei": 249.376239429,
+      "priorityFeeGwei": 287,
+      "gasUsedRatio": 0.15886966875
+    },
+    {
+      "blockNumber": 91236786,
+      "baseFeeGwei": 249.606644078,
+      "priorityFeeGwei": 338.064766604,
+      "gasUsedRatio": 0.2015212625
+    },
+    {
+      "blockNumber": 91236787,
+      "baseFeeGwei": 250.94623256,
+      "priorityFeeGwei": 159.591,
+      "gasUsedRatio": 0.2391463875
+    },
+    {
+      "blockNumber": 91236788,
+      "baseFeeGwei": 248.364771002,
+      "priorityFeeGwei": 338.064766604,
+      "gasUsedRatio": 0.41010421875
+    },
+    {
+      "blockNumber": 91236789,
+      "baseFeeGwei": 255.094013161,
+      "priorityFeeGwei": 338.064766604,
+      "gasUsedRatio": 0.31435943125
+    },
+    {
+      "blockNumber": 91236790,
+      "baseFeeGwei": 252.898151547,
+      "priorityFeeGwei": 338.064766604,
+      "gasUsedRatio": 0.16986403125
+    },
+    {
+      "blockNumber": 91236791,
+      "baseFeeGwei": 249.905508544,
+      "priorityFeeGwei": 223.827,
+      "gasUsedRatio": 0.37585185625
+    },
+    {
+      "blockNumber": 91236792,
+      "baseFeeGwei": 255.784844272,
+      "priorityFeeGwei": 338.064766604,
+      "gasUsedRatio": 0.1977847
+    },
+    {
+      "blockNumber": 91236793,
+      "baseFeeGwei": 252.917454489,
+      "priorityFeeGwei": 224.913,
+      "gasUsedRatio": 0.20858744375
+    },
+    {
+      "blockNumber": 91236794,
+      "baseFeeGwei": 250.143195275,
+      "priorityFeeGwei": 338.064766604,
+      "gasUsedRatio": 0.1394733875
+    },
+    {
+      "blockNumber": 91236795,
+      "baseFeeGwei": 247.013464966,
+      "priorityFeeGwei": 338.064766604,
+      "gasUsedRatio": 0.18174855
+    },
+    {
+      "blockNumber": 91236796,
+      "baseFeeGwei": 247.83037323,
+      "priorityFeeGwei": 335.803074315,
+      "gasUsedRatio": 0.17330911875
+    },
+    {
+      "blockNumber": 91236797,
+      "baseFeeGwei": 248.432113604,
+      "priorityFeeGwei": 338.064766604,
+      "gasUsedRatio": 0.19561526875
+    },
+    {
+      "blockNumber": 91236798,
+      "baseFeeGwei": 249.612561273,
+      "priorityFeeGwei": 338.064766604,
+      "gasUsedRatio": 0.17521675
+    },
+    {
+      "blockNumber": 91236799,
+      "baseFeeGwei": 250.268229768,
+      "priorityFeeGwei": 280.94623256,
+      "gasUsedRatio": 0.30731755
+    },
+    {
+      "blockNumber": 91236800,
+      "baseFeeGwei": 248.074570357,
+      "priorityFeeGwei": 338.064766604,
+      "gasUsedRatio": 0.199249225
+    },
+    {
+      "blockNumber": 91236801,
+      "baseFeeGwei": 249.347224558,
+      "priorityFeeGwei": 349.350084092,
+      "gasUsedRatio": 0.12786999375
+    },
+    {
+      "blockNumber": 91236802,
+      "baseFeeGwei": 248.772427096,
+      "priorityFeeGwei": 338.064766604,
+      "gasUsedRatio": 0.2640296625
+    },
+    {
+      "blockNumber": 91236803,
+      "baseFeeGwei": 251.727368335,
+      "priorityFeeGwei": 277.901855931,
+      "gasUsedRatio": 0.216546125
+    }
+  ],
+  "lastOpportunityAt": "2026-08-01T04:57:06.191Z",
+  "sessionOpps": 2,
+  "sessionTrades": 0,
+  "sessionProfitUsd": 0,
+  "maticPrice": 0.07193354,
+  "ethPrice": 1867.94424403,
+  "configReloadRequired": false
+}

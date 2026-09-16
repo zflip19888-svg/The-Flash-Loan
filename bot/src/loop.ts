@@ -33,18 +33,37 @@ import {
   RETRY_BASE_DELAY_MS,
   FLASH_LOAN_ABI,
   PRICE_ORACLE_ABI,
+  MIN_POOL_DEPTH_USD,
+  DEAD_POOL_FLOOR_USD,
+  STABLECOIN_MAX_SPREAD_PCT,
 } from "./config";
+
+// ── Slippage + phantom guards (Fix for issues #40–42) ────────────────────────
+/** Min spread relative to LOAN NOTIONAL to consider a pair (0.05%) */
+const MIN_SPREAD_OF_LOAN_PCT = 0.05;
+/** Max spread relative to loan notional — anything higher is phantom (5%) */
+const MAX_SPREAD_OF_LOAN_PCT  = 5.0;
+/** Cap effective trade size to this fraction of the shallower pool's depth */
+const MAX_TRADE_TO_DEPTH_RATIO = 0.10;
+/** Hard cap on raw spread USD — rejects overflow/garbage oracle values */
+const MAX_SPREAD_USD_ABSOLUTE = 100_000;
+/** Stale oracle: reject if same pair returns identical spread for N consecutive blocks */
+const STALE_ORACLE_BLOCK_THRESHOLD = 3;
 import { logInfo, logWarn, logError, logDebug } from "./logger";
 import { NonceManager }                          from "./nonce-manager";
 import { ChainlinkPriceFeed, FEEDS }             from "./price-feed";
 import { writeOpportunity, readTodayLog, OpportunityRecord } from "./opportunity-log";
 import { SpreadHMM, HMMState, Regime }                        from "./hmm";
+import { getRpcPool, RpcPool }                              from "./rpc-pool";
+import { getMevRouter, MevRelayRouter, RelayName }           from "./mev-relay";
+import { getGasBidder, GasBidder }                          from "./gas-bidder";
+import * as fs from "fs";
+import * as path from "path";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const MIN_POOL_DEPTH_USD     = 15_000;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Aave v3 USDC borrow disabled — WETH routing
@@ -101,8 +120,10 @@ interface PairResult {
   cheaperDex:    string;   // router address
   expensiveDex:  string;   // router address
   spread:        bigint;   // in tokenOut units
-  viable:        boolean;
-  source:        SpreadSource;
+  viable:          boolean;
+  source:          SpreadSource;
+  spreadPctOfLoan?: number;
+  slippagePct?:     number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -145,6 +166,8 @@ export class ScanLoop {
   private running       = false;
   private executing     = false;
   private blocksScanned = 0;
+  // Stale oracle detection: track last spread per pair across blocks
+  private lastPairSpread = new Map<string, { spread: bigint; count: number; block: number }>();
   private lastBlock     = 0;
 
   private dailyPnL      = 0;
@@ -157,13 +180,23 @@ export class ScanLoop {
   private hmm = new SpreadHMM();
   private lastHMMState: HMMState | null = null;
 
+  /** Production infra: rotating RPC pool, MEV relay router, dynamic gas bidder */
+  private rpcPool:    RpcPool;
+  private mevRouter:  MevRelayRouter;
+  private gasBidder:  GasBidder;
+  private sessionStartMs = Date.now();
+
   constructor() {
-    this.http       = new JsonRpcProvider(ENV.POLYGON_RPC_URL);
-    this.qsRouter   = new Contract(QUICKSWAP_ROUTER,  ROUTER_ABI,  this.http);
-    this.ssRouter   = new Contract(SUSHISWAP_ROUTER,  ROUTER_ABI,  this.http);
-    this.qsFactory  = new Contract(QUICKSWAP_FACTORY, FACTORY_ABI, this.http);
-    this.ssFactory  = new Contract(SUSHISWAP_FACTORY, FACTORY_ABI, this.http);
-    this.priceFeed  = new ChainlinkPriceFeed(this.http);
+    this.rpcPool   = getRpcPool();
+    this.rpcPool.startHealthChecks();
+    this.mevRouter = getMevRouter();
+    this.gasBidder = getGasBidder();
+    this.http      = this.rpcPool.bestProvider();
+    this.qsRouter  = new Contract(QUICKSWAP_ROUTER,  ROUTER_ABI,  this.http);
+    this.ssRouter  = new Contract(SUSHISWAP_ROUTER,  ROUTER_ABI,  this.http);
+    this.qsFactory = new Contract(QUICKSWAP_FACTORY, FACTORY_ABI, this.http);
+    this.ssFactory = new Contract(SUSHISWAP_FACTORY, FACTORY_ABI, this.http);
+    this.priceFeed = new ChainlinkPriceFeed(this.http);
 
     // Spread source: oracle if address is set, else DEX-direct
     if (ENV.PRICE_ORACLE_ADDRESS) {
@@ -205,9 +238,10 @@ export class ScanLoop {
       logWarn("Price cache warm failed", { error: String(e) })
     );
 
-    if (ENV.POLYGON_WS_URL) {
+    const poolWs = this.rpcPool.bestWebSocket();
+    if (poolWs) {
       try {
-        this.ws = new WebSocketProvider(ENV.POLYGON_WS_URL);
+        this.ws = poolWs;
         await new Promise<void>((resolve, reject) => {
           const t = setTimeout(() => reject(new Error("WS timeout")), 8_000);
           this.ws!.once("block", () => { clearTimeout(t); resolve(); });
@@ -262,24 +296,28 @@ export class ScanLoop {
 
     this.priceFeed.flushCache();
 
-    const [feeData, maticUsd] = await Promise.all([
-      this.http.getFeeData().catch(() => null),
-      this.priceFeed.getPrice(FEEDS.MATIC_USD, 0.9),
-    ]);
+    const maticUsd = await this.priceFeed.getPrice(FEEDS.MATIC_USD, 0.9).catch(() => 0.05);
+    const ethUsd   = await this.priceFeed.getPrice(FEEDS.ETH_USD, 0.95).catch(() => 1900);
 
-    const gasPrice     = feeData?.gasPrice ?? 100_000_000_000n;
-    const gasPriceGwei = Number(formatUnits(gasPrice, "gwei"));
+    // Refresh gas bidder with latest block history, then compute dynamic bid
+    await this.gasBidder.refresh(this.http).catch(() => {});
+    const regime: Regime = this.lastHMMState?.regime ?? "WARM";
+    const bid = this.gasBidder.computeBid(regime);
+    const gasPriceGwei = bid.totalGwei;
+    const gasPrice     = BigInt(Math.round(gasPriceGwei * 1_000_000_000));
 
     if (gasPriceGwei > MAX_GAS_GWEI) {
-      logWarn("Gas too high", { gasPriceGwei, max: MAX_GAS_GWEI });
+      logWarn("Gas too high", { gasPriceGwei, max: MAX_GAS_GWEI, capped: bid.capped });
+      this._writeRuntimeState(blockNumber, maticUsd, ethUsd);
       return;
     }
 
     const gasCostUsd = Number(formatUnits(gasPrice * BigInt(ESTIMATED_GAS_UNITS), 18)) * maticUsd;
+    this._writeRuntimeState(blockNumber, maticUsd, ethUsd);
 
     // Scan all pairs concurrently
     const results = await Promise.all(
-      TOKEN_PAIRS.map((p) => this._scanPair(p, gasPrice, maticUsd, gasCostUsd))
+      TOKEN_PAIRS.map((p) => this._scanPair(p, gasPrice, maticUsd, gasCostUsd, blockNumber))
     );
 
     const viable = results.filter((r): r is PairResult => r !== null && r.viable);
@@ -291,11 +329,14 @@ export class ScanLoop {
 
     let hmmState: HMMState | null = null;
     if (bestResult) {
-      const spreadPct = bestResult.spreadUsd / Math.max(bestResult.qsDepthUsd, 1) * 100;
+      // Spread as % of loan notional — more meaningful than % of pool depth
+      const loanNotionalEst = parseFloat(formatUnits(bestResult.pair.loanAmount, 18)) * (maticUsd * 10 || 1800);
+      const spreadPct = bestResult.spreadUsd / Math.max(loanNotionalEst, 100) * 100;
+      const prevRegime = this.lastHMMState?.regime ?? null;
       hmmState = this.hmm.update(spreadPct, bestResult.pair.name);
       this.lastHMMState = hmmState;
 
-      if (hmmState.regime !== (this.lastHMMState?.regime ?? "COLD") || hmmState.consecutiveTicks === 1) {
+      if (hmmState.regime !== prevRegime || hmmState.consecutiveTicks === 1) {
         logInfo("HMM regime", {
           regime:       hmmState.regime,
           confidence:   hmmState.confidence.toFixed(3),
@@ -322,22 +363,24 @@ export class ScanLoop {
 
     for (const r of viable) {
       this.sessionOpps++;
-      const _signal = r.viable ? "EXECUTE" : "VERIFY_DEPTH";
-      const _note   = r.ssDepthUsd < MIN_POOL_DEPTH_USD
-                        ? (r.ssDepthUsd === 0 ? "SushiSwap dead pool" : "SushiSwap shallow")
-                        : r.qsDepthUsd < MIN_POOL_DEPTH_USD ? "QuickSwap shallow" : undefined;
+      const _signal: "EXECUTE" | "VERIFY_DEPTH" | "MARGINAL" =
+        r.viable ? "EXECUTE" : "VERIFY_DEPTH";
+      const _note = r.ssDepthUsd < MIN_POOL_DEPTH_USD
+        ? "SushiSwap shallow"
+        : r.qsDepthUsd < MIN_POOL_DEPTH_USD ? "QuickSwap shallow" : undefined;
       const record: OpportunityRecord = {
         ts:           new Date().toISOString(),
         block:        blockNumber,
         pair:         r.pair.name,
         qsDepthUsd:   r.qsDepthUsd,
         ssDepthUsd:   r.ssDepthUsd,
-        spreadPct:    r.spreadUsd / (r.qsDepthUsd || 1) * 100,
+        spreadPct:    r.spreadPctOfLoan ?? (r.spreadUsd / (r.qsDepthUsd || 1) * 100),
         spreadUsd:    r.spreadUsd,
         netUsd:       r.netProfitUsd,
         gasCostUsd:   r.gasCostUsd,
         aaveFeeUsd:   r.aaveFeeUsd,
         netProfitUsd: r.netProfitUsd,
+        slippagePct:  r.slippagePct,
         gasGwei:      Number((gasPrice / 1_000_000_000n)),
         signal:       _signal,
         buyDex:       dexLabel(r.cheaperDex),
@@ -354,9 +397,11 @@ export class ScanLoop {
         pair:        r.pair.name,
         net:         `$${r.netProfitUsd.toFixed(2)}`,
         spread:      `$${r.spreadUsd.toFixed(2)}`,
+        spreadPct:   `${(r.spreadUsd / Math.max(r.qsDepthUsd, 1) * 100).toFixed(2)}%`,
         cheaper:     dexLabel(r.cheaperDex),
         qsDepth:     `$${(r.qsDepthUsd / 1000).toFixed(0)}K`,
         ssDepth:     `$${(r.ssDepthUsd / 1000).toFixed(0)}K`,
+        regime:      hmmState?.regime ?? "?",
         source:      r.source,
         dryRun:      DRY_RUN || !this.flashLoan,
       });
@@ -376,7 +421,7 @@ export class ScanLoop {
 
       if (this.flashLoan && this.nonceMgr && this.wallet && !DRY_RUN && !hmmBlocked) {
         const txResult = await this._execute(r, gasPrice, gasCostUsd);
-        record.executed = true;
+        record.executed = (txResult.status === "success");
         record.txHash   = txResult.hash;
         record.txStatus = txResult.status;
         if (txResult.error) record.error = txResult.error;
@@ -407,6 +452,7 @@ export class ScanLoop {
     gasPrice:   bigint,
     maticUsd:   number,
     gasCostUsd: number,
+    blockNumber: number,
   ): Promise<PairResult | null> {
     try {
       const inDec  = decimalsOf(pair.tokenIn);
@@ -422,8 +468,16 @@ export class ScanLoop {
         this._depth(this.ssFactory, pair.tokenIn, pair.tokenOut, inDec, tokenInUsd),
       ]);
 
+      // ── Hard dead-pool guard — ZERO or near-zero liquidity always rejected ──
+      if (qsDep < DEAD_POOL_FLOOR_USD || ssDep < DEAD_POOL_FLOOR_USD) {
+        logDebug(`Dead pool skip — ${pair.name}`, {
+          qs: qsDep.toFixed(0), ss: ssDep.toFixed(0), floor: DEAD_POOL_FLOOR_USD,
+        });
+        return null;
+      }
+      // ── Normal depth floor ────────────────────────────────────────────────
       if (Math.min(qsDep, ssDep) < MIN_POOL_DEPTH_USD) {
-        const _note = ssDep === 0 ? "SushiSwap dead pool" : "shallow pool";
+        const _note = ssDep < MIN_POOL_DEPTH_USD ? "SushiSwap shallow" : "QuickSwap shallow";
         logDebug(`Depth skip — ${pair.name} (${_note})`, {
           qs: qsDep.toFixed(0), ss: ssDep.toFixed(0), required: MIN_POOL_DEPTH_USD,
         });
@@ -465,21 +519,90 @@ export class ScanLoop {
 
       if (spread === 0n) return null;
 
-      // ── Profit calc ────────────────────────────────────────────────────────
-      const spreadUsd    = parseFloat(formatUnits(spread, outDec)) * (tokenOutUsd || 1);
-      const loanNotional = parseFloat(formatUnits(pair.loanAmount, inDec)) * tokenInUsd;
-      const aaveFeeUsd   = loanNotional * 0.0005;
-      const netProfitUsd = spreadUsd - gasCostUsd - aaveFeeUsd;
+      // ── Overflow guard: reject absurd spreads (fix for $41 quadrillion bug) ──
+      const spreadAbsUsd = parseFloat(formatUnits(spread, outDec)) * (tokenOutUsd || 1);
+      if (spreadAbsUsd > MAX_SPREAD_USD_ABSOLUTE) {
+        logDebug(`Overflow guard skip — ${pair.name}`, {
+          spreadAbsUsd: spreadAbsUsd.toExponential(3), cap: MAX_SPREAD_USD_ABSOLUTE,
+        });
+        return null;
+      }
+
+      // ── Stale oracle: same spread across N blocks = frozen feed ──
+      const prevEntry = this.lastPairSpread.get(pair.name);
+      if (prevEntry && prevEntry.spread === spread) {
+        const newCount = prevEntry.count + 1;
+        this.lastPairSpread.set(pair.name, { spread, count: newCount, block: blockNumber });
+        if (newCount >= STALE_ORACLE_BLOCK_THRESHOLD) {
+          logDebug(`Stale oracle skip — ${pair.name}`, {
+            repeatCount: newCount, spread: spread.toString(),
+          });
+          return null;
+        }
+      } else {
+        this.lastPairSpread.set(pair.name, { spread, count: 1, block: blockNumber });
+      }
+
+      // ── Stablecoin phantom spread guard ────────────────────────────────────
+      // If the pair is stablecoin↔stablecoin and spread > 20%, it's pool imbalance, not real arb
+      if (pair.isStablecoin) {
+        const rawSpreadPct = parseFloat(formatUnits(spread, decimalsOf(pair.tokenOut))) /
+          Math.max(parseFloat(formatUnits(
+            qsOut > ssOut ? qsOut : ssOut, decimalsOf(pair.tokenOut)
+          )), 1) * 100;
+        if (rawSpreadPct > STABLECOIN_MAX_SPREAD_PCT) {
+          logDebug(`Phantom spread skip — ${pair.name}`, {
+            spreadPct: rawSpreadPct.toFixed(2), threshold: STABLECOIN_MAX_SPREAD_PCT,
+          });
+          return null;
+        }
+      }
+
+      // ── Profit calc (Fix: slippage-adjusted + phantom guard vs loan notional) ─
+      const spreadUsd     = parseFloat(formatUnits(spread, outDec)) * (tokenOutUsd || 1);
+      const loanNotional   = parseFloat(formatUnits(pair.loanAmount, inDec)) * tokenInUsd;
+      if (loanNotional <= 0) return null;
+
+      // Real spread % relative to LOAN NOTIONAL (not pool depth — that was the bug)
+      const spreadPctOfLoan = (spreadUsd / loanNotional) * 100;
+
+      // Universal phantom guard: >5% spread vs loan = pool imbalance, not real arb
+      if (spreadPctOfLoan > MAX_SPREAD_OF_LOAN_PCT) {
+        logDebug(`Phantom spread skip (universal) — ${pair.name}`, {
+          spreadPctOfLoan: spreadPctOfLoan.toFixed(2),
+          max: MAX_SPREAD_OF_LOAN_PCT,
+          qsDep: qsDep.toFixed(0), ssDep: ssDep.toFixed(0),
+        });
+        return null;
+      }
+      // Too-flat guard: <0.05% spread vs loan — not worth the gas
+      if (spreadPctOfLoan < MIN_SPREAD_OF_LOAN_PCT) {
+        logDebug(`Spread too flat — ${pair.name}`, { spreadPctOfLoan: spreadPctOfLoan.toFixed(3) });
+        return null;
+      }
+
+      // Slippage estimation: trade size / shallower pool depth
+      const shallowerDepth = Math.min(qsDep, ssDep);
+      const slippagePct     = shallowerDepth > 0
+        ? Math.min(100, (loanNotional / shallowerDepth) * 100)
+        : 100;
+      // If trade would consume >10% of pool, the CP-formula quote is unreliable
+      // — model the slippage drag as half the spread × slippage%
+      const slippageDrag    = spreadUsd * (slippagePct / 100) * 0.5;
+      const aaveFeeUsd      = loanNotional * 0.0005;
+      const netProfitUsd    = spreadUsd - gasCostUsd - aaveFeeUsd - slippageDrag;
 
       logDebug(`Evaluated ${pair.name}`, {
         source, qsDep: qsDep.toFixed(0), ssDep: ssDep.toFixed(0),
-        spreadUsd: spreadUsd.toFixed(2), net: netProfitUsd.toFixed(2),
+        spreadUsd: spreadUsd.toFixed(2), spreadPctOfLoan: spreadPctOfLoan.toFixed(2),
+        slippagePct: slippagePct.toFixed(1), net: netProfitUsd.toFixed(2),
       });
 
       return {
         pair, qsDepthUsd: qsDep, ssDepthUsd: ssDep,
         qsOut, ssOut, spreadUsd, gasCostUsd, aaveFeeUsd, netProfitUsd,
         cheaperDex, expensiveDex, spread,
+        spreadPctOfLoan, slippagePct,
         viable: netProfitUsd >= MIN_PROFIT_USD,
         source,
       };
@@ -586,6 +709,24 @@ export class ScanLoop {
         this.nonceMgr!.commit();
         logInfo("Tx submitted", { hash: tx.hash, pair: r.pair.name });
 
+        // Route through MEV relay (private mempool) — fall back to public if it fails
+        let relay: RelayName = "public";
+        try {
+          const signedRaw = await this.wallet!.signTransaction({
+            to: this.flashLoan!.target,
+            data: tx.data,
+            gasPrice,
+            gasLimit: BigInt(ESTIMATED_GAS_UNITS) + 100_000n,
+            nonce,
+            chainId: 137,
+          });
+          const relayed = await this.mevRouter.submitRawTransaction(signedRaw, tx.hash);
+          if (relayed && relayed.relay !== "public") {
+            relay = relayed.relay;
+            logInfo("MEV relay accepted", { relay, hash: tx.hash });
+          }
+        } catch (e) { /* swallow — public fallback */ }
+
         const receipt = await tx.wait(1);
         this.executing = false;
 
@@ -593,10 +734,11 @@ export class ScanLoop {
           logInfo("Trade success", {
             hash: tx.hash, gasUsed: receipt.gasUsed.toString(),
             block: receipt.blockNumber, net: `$${r.netProfitUsd.toFixed(2)}`,
+            relay,
           });
           return { hash: tx.hash, status: "success" };
         }
-        logWarn("Tx reverted", { hash: tx.hash });
+        logWarn("Tx reverted", { hash: tx.hash, relay });
         return { hash: tx.hash, status: "reverted" };
 
       } catch (err: unknown) {
@@ -617,6 +759,42 @@ export class ScanLoop {
     }
     this.executing = false;
     return { hash: "", status: "pending", error: "max retries" };
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Runtime state — write to dashboard/runtime.json so FastAPI can serve it
+  // ──────────────────────────────────────────────────────────────────────────
+
+  private _writeRuntimeState(blockNumber: number, maticUsd: number, ethUsd: number): void {
+    try {
+      const state = {
+        updatedAt:           new Date().toISOString(),
+        status:              "RUNNING",
+        lastBlock:           blockNumber,
+        lastBlockAt:         new Date().toISOString(),
+        rpcAlive:            this.rpcPool.countAlive(),
+        rpcTotal:            this.rpcPool.total(),
+        rpcHealth:           this.rpcPool.snapshot(),
+        wsSubscriptions:     this.ws ? 1 : 0,
+        hmmRegime:           this.lastHMMState?.regime ?? "UNKNOWN",
+        hmmConfidence:       this.lastHMMState ? Number(this.lastHMMState.confidence.toFixed(3)) : 0,
+        activeRelay:         this.mevRouter.getLastUsedRelay(),
+        relayStats:          this.mevRouter.getStats(),
+        lastGasBid:          this.gasBidder.getLastBid(),
+        gasHistory:          this.gasBidder.snapshot().slice(-30),
+        lastOpportunityAt:   this.sessionOpps > 0 ? new Date().toISOString() : null,
+        sessionOpps:         this.sessionOpps,
+        sessionTrades:       this.sessionTrades,
+        sessionProfitUsd:    Number(this.sessionProfit.toFixed(2)),
+        maticPrice:          maticUsd,
+        ethPrice:            ethUsd,
+        configReloadRequired: false,
+      };
+      const outPath = path.resolve(__dirname, "..", "..", "dashboard", "runtime.json");
+      fs.writeFileSync(outPath, JSON.stringify(state, null, 2));
+    } catch (e) {
+      logDebug("runtime-state write failed", { error: String(e) });
+    }
   }
 
   // ──────────────────────────────────────────────────────────────────────────

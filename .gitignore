@@ -36,3 +36,4 @@ Thumbs.db
 .npm/
 __pycache__/
 .cache/
+blobs/

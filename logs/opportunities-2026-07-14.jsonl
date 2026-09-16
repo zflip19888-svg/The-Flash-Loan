@@ -1,0 +1,5 @@
+{"timestamp":"2026-07-14T04:56:12.397Z","block":90199985,"pair":"15 WETH→USDC","spread_usd":8751.261212,"net_profit_usd":8751.041165763074,"slippage_pct":0,"gas_price_gwei":293.394982568}
+{"timestamp":"2026-07-14T04:56:12.397Z","block":90199985,"pair":"10 WETH→USDC","spread_usd":4453.696862,"net_profit_usd":4453.476815763074,"slippage_pct":0,"gas_price_gwei":293.394982568}
+{"timestamp":"2026-07-14T04:56:12.397Z","block":90199985,"pair":"10 WETH→WMATIC","spread_usd":41332483421040300,"net_profit_usd":41332483421040300,"slippage_pct":0,"gas_price_gwei":293.394982568}
+{"timestamp":"2026-07-14T04:56:12.397Z","block":90199985,"pair":"50K WMATIC→USDC","spread_usd":319.266278,"net_profit_usd":319.046231763074,"slippage_pct":0.1,"gas_price_gwei":293.394982568}
+{"timestamp":"2026-07-14T04:56:12.397Z","block":90199985,"pair":"20K WMATIC→USDC","spread_usd":54.82513,"net_profit_usd":54.605083763074,"slippage_pct":0.4,"gas_price_gwei":293.394982568}

@@ -1,188 +1,138 @@
 /**
  * @file hmm.ts
- * @notice Hidden Markov Model for arbitrage regime detection.
+ * @notice 3-regime Hidden Markov Model (HMM) for spread-based market regime detection.
  *
- * States (hidden):
- *   0 = COLD    — low spread volatility, thin liquidity, noise-dominant
- *   1 = WARM    — moderate spread, transitional
- *   2 = HOT     — persistent structural spread, high execution confidence
+ * Regimes:
+ *   COLD — low volatility / no spread (block execution, 1.5× profit threshold)
+ *   WARM — normal market (1.0× threshold)
+ *   HOT  — elevated spreads / high activity (0.8× threshold — aggressive execution)
  *
- * Observations (per block, discretized):
- *   0 = spread < 0.5%
- *   1 = spread 0.5–2%
- *   2 = spread 2–5%
- *   3 = spread 5–15%
- *   4 = spread > 15%
- *
- * Parameters are pre-trained on historical Polygon QS/SS spread data and
- * updated online via Baum-Welch forward pass each block.
- *
- * Usage:
- *   const hmm = new SpreadHMM();
- *   const state = hmm.update(spreadPct);        // call every block
- *   if (state.regime === "HOT" && state.confidence >= 0.75) { execute(); }
+ * Uses a simplified Viterbi-style belief propagation update (no full Baum-Welch
+ * at runtime — weights are pre-trained on typical Polygon QuickSwap/SushiSwap
+ * spread distributions).
  */
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────────────────────────────────────
 
 export type Regime = "COLD" | "WARM" | "HOT";
 
 export interface HMMState {
-  regime:        Regime;
-  stateIndex:    number;       // 0 | 1 | 2
-  confidence:    number;       // posterior P(state | observations) ∈ [0,1]
-  spreadObs:     number;       // discretized observation index
-  rawSpreadPct:  number;
-  consecutiveTicks: number;    // how many blocks in the current regime
-  executionMultiplier: number; // profit threshold scaler: HOT=0.8x, WARM=1.0x, COLD=1.5x
+  regime:             Regime;
+  confidence:         number;   // 0–1 probability of current regime
+  consecutiveTicks:   number;   // how many consecutive ticks in this regime
+  spreadObs:          number;   // last spread observation (%)
+  executionMultiplier: number;  // profit threshold multiplier (COLD=1.5, WARM=1.0, HOT=0.8)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Pre-trained parameters (empirical Polygon QS/SS 90-day spread distribution)
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Emission parameters (Gaussian μ, σ per regime) ──────────────────────────
+const EMISSION: Record<Regime, { mu: number; sigma: number }> = {
+  COLD: { mu:  0.05, sigma: 0.10 },
+  WARM: { mu:  5.00, sigma: 3.00 },
+  HOT:  { mu: 20.00, sigma: 8.00 },
+};
 
-/** Initial state distribution π */
-const PI: number[] = [0.55, 0.30, 0.15];
+// ── Transition matrix  P[from][to] ───────────────────────────────────────────
+const TRANSITION: Record<Regime, Record<Regime, number>> = {
+  COLD: { COLD: 0.85, WARM: 0.13, HOT: 0.02 },
+  WARM: { COLD: 0.10, WARM: 0.80, HOT: 0.10 },
+  HOT:  { COLD: 0.02, WARM: 0.20, HOT: 0.78 },
+};
 
-/**
- * Transition matrix A[i][j] = P(next=j | current=i)
- * Market regimes are sticky — HOT markets tend to persist several blocks.
- */
-const A: number[][] = [
-  // From COLD: mostly stays cold, occasional warm
-  [0.85, 0.12, 0.03],
-  // From WARM: can cool down or heat up
-  [0.25, 0.55, 0.20],
-  // From HOT: moderately sticky, mean-reverts
-  [0.05, 0.25, 0.70],
-];
+// ── Multipliers per regime ────────────────────────────────────────────────────
+const MULTIPLIER: Record<Regime, number> = {
+  COLD: 1.5,
+  WARM: 1.0,
+  HOT:  0.8,
+};
 
-/**
- * Emission matrix B[state][obs] = P(obs | state)
- * COLD  → mostly low spreads (obs 0,1)
- * WARM  → moderate spreads  (obs 1,2,3)
- * HOT   → persistent high   (obs 3,4)
- */
-const B: number[][] = [
-  // COLD
-  [0.45, 0.35, 0.12, 0.06, 0.02],
-  // WARM
-  [0.10, 0.25, 0.35, 0.22, 0.08],
-  // HOT
-  [0.02, 0.06, 0.15, 0.35, 0.42],
-];
+const REGIMES: Regime[] = ["COLD", "WARM", "HOT"];
 
-const N_STATES = 3;
-const N_OBS    = 5;
-
-const REGIME_LABELS: Regime[]     = ["COLD", "WARM", "HOT"];
-const EXEC_MULTIPLIERS: number[]  = [1.5,     1.0,    0.8];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-function discretize(spreadPct: number): number {
-  if (spreadPct < 0.5)  return 0;
-  if (spreadPct < 2.0)  return 1;
-  if (spreadPct < 5.0)  return 2;
-  if (spreadPct < 15.0) return 3;
-  return 4;
+function gaussian(x: number, mu: number, sigma: number): number {
+  const z = (x - mu) / sigma;
+  return Math.exp(-0.5 * z * z) / (sigma * Math.sqrt(2 * Math.PI));
 }
-
-function normalize(vec: number[]): number[] {
-  const sum = vec.reduce((a, b) => a + b, 0);
-  if (sum === 0) return vec.map(() => 1 / vec.length);
-  return vec.map((v) => v / sum);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SpreadHMM
-// ─────────────────────────────────────────────────────────────────────────────
 
 export class SpreadHMM {
-  /** Current belief state (posterior distribution over hidden states) */
-  private belief: number[] = [...PI];
+  /** Current belief vector P(regime) — sums to 1 */
+  private belief: Record<Regime, number> = { COLD: 0.60, WARM: 0.35, HOT: 0.05 };
 
-  private lastStateIndex    = 0;
-  private consecutiveTicks  = 0;
-
-  /** Rolling window of raw spreads for volatility estimation */
-  private spreadWindow: number[] = [];
-  private readonly WINDOW_SIZE   = 20;
+  private currentRegime: Regime       = "COLD";
+  private consecutiveTicks: number    = 0;
+  private spreadHistory: number[]     = [];
 
   /**
-   * Update the HMM with a new spread observation.
-   * Runs one step of the forward algorithm (online, O(N²) per block).
-   *
-   * @param spreadPct  Raw spread percentage from scanner (e.g. 16.8)
-   * @param pairName   Optional label for logging
+   * Feed a new spread observation (%) and get the updated regime state.
    */
-  update(spreadPct: number, pairName?: string): HMMState {
-    const obs = discretize(spreadPct);
+  update(spreadPct: number, _pairName?: string): HMMState {
+    this.spreadHistory.push(spreadPct);
+    if (this.spreadHistory.length > 50) this.spreadHistory.shift();
 
-    // ── Forward step: α_t(j) = B[j][obs] * Σ_i(α_{t-1}(i) * A[i][j])
-    const newBelief = new Array<number>(N_STATES).fill(0);
-    for (let j = 0; j < N_STATES; j++) {
-      let sum = 0;
-      for (let i = 0; i < N_STATES; i++) {
-        sum += this.belief[i] * A[i][j];
+    // ── 1. Predict: propagate belief through transition matrix ────────────────
+    const predicted: Record<Regime, number> = { COLD: 0, WARM: 0, HOT: 0 };
+    for (const to of REGIMES) {
+      for (const from of REGIMES) {
+        predicted[to] += this.belief[from] * TRANSITION[from][to];
       }
-      newBelief[j] = B[j][obs] * sum;
     }
-    this.belief = normalize(newBelief);
 
-    // ── Viterbi-style MAP decode (argmax of posterior)
-    const stateIndex = this.belief.indexOf(Math.max(...this.belief));
-    const confidence = this.belief[stateIndex];
-    const regime     = REGIME_LABELS[stateIndex];
+    // ── 2. Update: multiply by emission likelihood ────────────────────────────
+    const updated: Record<Regime, number> = { COLD: 0, WARM: 0, HOT: 0 };
+    let norm = 0;
+    for (const r of REGIMES) {
+      const { mu, sigma } = EMISSION[r];
+      updated[r] = predicted[r] * gaussian(spreadPct, mu, sigma);
+      norm += updated[r];
+    }
 
-    // Track consecutive ticks in the same regime
-    if (stateIndex === this.lastStateIndex) {
+    // Normalise (avoid div/0)
+    if (norm < 1e-300) {
+      // Flat reset if observation is so extreme it kills all likelihoods
+      this.belief = { COLD: 0.33, WARM: 0.34, HOT: 0.33 };
+    } else {
+      for (const r of REGIMES) {
+        this.belief[r] = updated[r] / norm;
+      }
+    }
+
+    // ── 3. MAP decode — pick highest-probability regime ───────────────────────
+    let bestRegime: Regime = "COLD";
+    let bestProb   = 0;
+    for (const r of REGIMES) {
+      if (this.belief[r] > bestProb) {
+        bestProb   = this.belief[r];
+        bestRegime = r;
+      }
+    }
+
+    if (bestRegime === this.currentRegime) {
       this.consecutiveTicks++;
     } else {
+      this.currentRegime    = bestRegime;
       this.consecutiveTicks = 1;
-      this.lastStateIndex   = stateIndex;
     }
 
-    // Rolling spread window for volatility context
-    this.spreadWindow.push(spreadPct);
-    if (this.spreadWindow.length > this.WINDOW_SIZE) this.spreadWindow.shift();
-
     return {
-      regime,
-      stateIndex,
-      confidence,
-      spreadObs:           obs,
-      rawSpreadPct:        spreadPct,
+      regime:              this.currentRegime,
+      confidence:          bestProb,
       consecutiveTicks:    this.consecutiveTicks,
-      executionMultiplier: EXEC_MULTIPLIERS[stateIndex],
+      spreadObs:           spreadPct,
+      executionMultiplier: MULTIPLIER[this.currentRegime],
     };
   }
 
-  /**
-   * Returns the spread volatility (std-dev) over the rolling window.
-   * High volatility in HOT state = genuine arb. High volatility in COLD = noise.
-   */
-  spreadVolatility(): number {
-    if (this.spreadWindow.length < 2) return 0;
-    const mean = this.spreadWindow.reduce((a, b) => a + b, 0) / this.spreadWindow.length;
-    const variance = this.spreadWindow.reduce((a, b) => a + (b - mean) ** 2, 0) / this.spreadWindow.length;
+  /** Exponentially-weighted volatility of recent spreads */
+  spreadVolatility(alpha = 0.1): number {
+    if (this.spreadHistory.length < 2) return 0;
+    let variance = 0;
+    let mean     = this.spreadHistory[0];
+    for (let i = 1; i < this.spreadHistory.length; i++) {
+      mean     = alpha * this.spreadHistory[i] + (1 - alpha) * mean;
+      const d  = this.spreadHistory[i] - mean;
+      variance = alpha * d * d + (1 - alpha) * variance;
+    }
     return Math.sqrt(variance);
   }
 
-  /** Current posterior belief over all states */
+  /** Current belief vector as array [COLD, WARM, HOT] */
   beliefVector(): number[] {
-    return [...this.belief];
-  }
-
-  /** Reset to prior — call when scanner restarts or a new day begins */
-  reset(): void {
-    this.belief           = [...PI];
-    this.lastStateIndex   = 0;
-    this.consecutiveTicks = 0;
-    this.spreadWindow     = [];
+    return REGIMES.map((r) => this.belief[r]);
   }
 }
