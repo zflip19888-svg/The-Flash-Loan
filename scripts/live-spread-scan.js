@@ -23,6 +23,8 @@
 
 require("dotenv").config();
 const { ethers } = require("ethers");
+const fs = require("fs");
+const path = require("path");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
@@ -245,6 +247,8 @@ async function scanPair(state, pair, env) {
   const priceIn   = from.usdPrice;
   const priceOut  = to.usdPrice;
   const { COL, results, gasCostUsd } = env;
+  const loanNotionalUsd = priceIn ? amount * priceIn : null;
+  const aaveFeeUsd      = loanNotionalUsd ? loanNotionalUsd * 0.0005 : null;
 
   // ── 1. Fetch reserves + depth for both DEXes in parallel (live) ──────────
   const [qsDepth, ssDepth] = await Promise.all([
@@ -265,7 +269,7 @@ async function scanPair(state, pair, env) {
       pad("—", COL[5]) + pad("—", COL[6]) + pad("—", COL[7]) +
       "⚫ NO LIQUIDITY"
     );
-    results.push({ pair: pairLabel, signal: "NO_LIQUIDITY", qsDepthUsd, ssDepthUsd });
+    results.push({ loanNotionalUsd, aaveFeeUsd, pair: pairLabel, signal: "NO_LIQUIDITY", qsDepthUsd, ssDepthUsd });
     return;
   }
 
@@ -285,7 +289,7 @@ async function scanPair(state, pair, env) {
       pad("—", COL[5]) + pad("—", COL[6]) + pad("—", COL[7]) +
       "⚫ QUOTE FAILED"
     );
-    results.push({ pair: pairLabel, signal: "QUOTE_FAILED" });
+    results.push({ loanNotionalUsd, aaveFeeUsd, pair: pairLabel, signal: "QUOTE_FAILED" });
     return;
   }
 
@@ -306,7 +310,7 @@ async function scanPair(state, pair, env) {
       pad("—", COL[6]) + pad("—", COL[7]) +
       "⚪ FLAT"
     );
-    results.push({ pair: pairLabel, signal: "FLAT", spreadPct, qsDepthUsd, ssDepthUsd });
+    results.push({ loanNotionalUsd, aaveFeeUsd, pair: pairLabel, signal: "FLAT", spreadPct, qsDepthUsd, ssDepthUsd });
     return;
   }
 
@@ -318,22 +322,37 @@ async function scanPair(state, pair, env) {
     if (outPrice) spreadUsd = spreadUnits * outPrice;
   }
 
-  // ── 6. Net profit ──────────────────────────────────────────────────────────
-  const loanNotionalUsd = priceIn ? amount * priceIn : null;
-  const aaveFeeUsd      = loanNotionalUsd ? loanNotionalUsd * 0.0005 : null;
-  const netProfit       = (spreadUsd !== null && gasCostUsd !== null && aaveFeeUsd !== null)
+  // ── 6. REAL round-trip profit (Oct 13: slippage model REMOVED) ─────────
+  // Quote the actual buy leg + sell leg on live routers, both directions.
+  //   dir 1: buy on QuickSwap (qsOut), sell on SushiSwap → rt1
+  //   dir 2: buy on SushiSwap (ssOut), sell on QuickSwap → rt2
+  // Winner's end amount is the REAL net (no estimates).
+  const [rt1, rt2] = await Promise.all([
+    qsOut ? getRouterQuote(state.ctx.ssRouter, to.addr, from.addr, qsOut).catch(() => null) : null,
+    ssOut ? getRouterQuote(state.ctx.qsRouter, to.addr, from.addr, ssOut).catch(() => null) : null,
+  ]);
+  const rtBest  = (rt1 && rt2) ? (rt1 >= rt2 ? rt1 : rt2) : (rt1 || rt2);
+  const leg1Dex = rt1 && (!rt2 || rt1 >= rt2) ? "QuickSwap" : "SushiSwap";
+
+  let netProfitAdj = null;
+  let roundTripUsd = null;
+  if (rtBest) {
+    const endF   = parseFloat(ethers.formatUnits(rtBest, from.decimals));
+    const gross  = endF - amount;                     // in tokenIn units
+    roundTripUsd = priceIn ? gross * priceIn : null;
+    netProfitAdj  = (roundTripUsd !== null && gasCostUsd !== null && aaveFeeUsd !== null)
+      ? roundTripUsd - gasCostUsd - aaveFeeUsd
+      : null;
+  }
+  // One-way gross (kept for display + phantom guard only)
+  const netProfit  = (spreadUsd !== null && gasCostUsd !== null && aaveFeeUsd !== null)
     ? spreadUsd - gasCostUsd - aaveFeeUsd
     : null;
 
-  // ── 7. Slippage estimation ──────────────────────────────────────────────────
-  // Estimate slippage as trade size / pool depth — rough but useful
-  const tradeUsd      = priceIn ? amount * priceIn : 0;
-  const sellSideDex   = (qsF && ssF && qsF > ssF) ? ssDepthUsd : qsDepthUsd;
-  const slippageEst   = sellSideDex > 0 ? (tradeUsd / sellSideDex) * 100 : 99;
-  const slippageCost  = spreadUsd !== null ? spreadUsd * (slippageEst / 100) : 0;
-
-  // Adjust net profit for estimated slippage
-  const netProfitAdj  = (netProfit !== null) ? netProfit - slippageCost : null;
+  // Informational depth ratio — no longer used to model P&L
+  const tradeUsd    = priceIn ? amount * priceIn : 0;
+  const sellSideDex = (qsF && ssF && qsF > ssF) ? ssDepthUsd : qsDepthUsd;
+  const slippageEst = sellSideDex > 0 ? (tradeUsd / sellSideDex) * 100 : 99;
 
   // ── 8. Phantom spread guard ──────────────────────────────────────────────
   // Stablecoin pairs (DAI↔USDC) with >20% spread are almost certainly phantom
@@ -383,8 +402,8 @@ async function scanPair(state, pair, env) {
 
   const cheaperDex = qsF && ssF ? (qsF > ssF ? "QS" : "SS") : "—";
 
-  results.push({
-    pair: pairLabel, amount, signal, spreadPct, spreadPctOfLoan, spreadUsd, netProfit,
+  results.push({ loanNotionalUsd, aaveFeeUsd,
+    pair: pairLabel, amount, signal, spreadPct, spreadPctOfLoan, spreadUsd, netProfit, leg1Dex, roundTripUsd,
     netProfitAdj, slippageEst, isPhantom, isPhantomUniversal,
     qsDepthUsd, ssDepthUsd, cheaperDex, qsF, ssF,
   });
@@ -469,7 +488,7 @@ async function main() {
       // Every RPC failed for this pair — record honestly, no fabricated numbers
       const pairLabel = `${pair.from.symbol}→${pair.to.symbol}`;
       console.log(pad(pairLabel, COL[0]) + " ".repeat(COL[1]+COL[2]+COL[3]+COL[4]+COL[5]+COL[6]+COL[7]) + "❌ RPC_ERROR");
-      results.push({ pair: pairLabel, amount: pair.amount, signal: "RPC_ERROR", error: e.message?.slice(0, 200) });
+      results.push({ loanNotionalUsd, aaveFeeUsd, pair: pairLabel, amount: pair.amount, signal: "RPC_ERROR", error: e.message?.slice(0, 200) });
     }
   }
 
@@ -523,6 +542,22 @@ async function main() {
   console.log(`  Depth filter:  skip < $${MIN_RESERVE_USD.toLocaleString()} per DEX side`);
   console.log(`  Gas:           ${gasPriceGwei.toFixed(1)} Gwei  |  est. tx $${gasCostUsd?.toFixed(3) ?? "?"}`);
   console.log(`  Timestamp:     ${new Date().toISOString()}`);
+  // ── Write JSONL log ────────────────────────────────────────────────────────
+  const ts = new Date().toISOString();
+  const logDate = ts.slice(0, 10); // YYYY-MM-DD (UTC)
+  const logDir = "logs";
+  const logFile = path.join(logDir, `opportunities-${logDate}.jsonl`);
+  if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+  for (const r of results) {
+    const record = {
+      ts, blockNumber: state.rpc?.blockNumber, ...r,
+      gasGwei: gasPriceGwei, gasCostUsd,
+      executed: false, dryRun: true,
+    };
+    fs.appendFileSync(logFile, JSON.stringify(record) + "\n");
+  }
+  console.log(`  📝 Logged ${results.length} records to ${logFile}`);
+
   console.log("═".repeat(120) + "\n");
 }
 

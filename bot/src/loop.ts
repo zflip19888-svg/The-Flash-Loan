@@ -616,27 +616,51 @@ export class ScanLoop {
         return null;
       }
 
-      // Slippage estimation: trade size / shallower pool depth
+      // ── REAL round-trip quote (Oct 13: slippage model REMOVED) ─────────────
+      // No estimated drag. Both directions are quoted on live routers:
+      //   dir 1: buy tokenOut on QuickSwap (qsOut), sell it on SushiSwap  → rt1
+      //   dir 2: buy tokenOut on SushiSwap (ssOut), sell it on QuickSwap → rt2
+      // The winning direction is exactly what execution runs — real data only.
+      const [rt1, rt2] = await Promise.all([
+        qsOut > 0n ? this._routerQuote(this.ssRouter, pair.tokenOut, pair.tokenIn, qsOut)
+                   : Promise.resolve(0n),
+        ssOut > 0n ? this._routerQuote(this.qsRouter, pair.tokenOut, pair.tokenIn, ssOut)
+                   : Promise.resolve(0n),
+      ]);
+      if (rt1 === 0n && rt2 === 0n) {
+        logDebug(`Round-trip quote failed — ${pair.name}`, {
+          rt1: rt1.toString(), rt2: rt2.toString(),
+        });
+        return null;
+      }
+      let roundTripOut: bigint, leg1Dex: string, leg2Dex: string;
+      if (rt1 >= rt2) { roundTripOut = rt1; leg1Dex = QUICKSWAP_ROUTER; leg2Dex = SUSHISWAP_ROUTER; }
+      else            { roundTripOut = rt2; leg1Dex = SUSHISWAP_ROUTER; leg2Dex = QUICKSWAP_ROUTER; }
+
+      // Can be negative — real round trip may return less than the input.
+      const grossProfitTokens = roundTripOut - effectiveAmount;
+      const grossProfitUsd    = parseFloat(formatUnits(grossProfitTokens, inDec)) * tokenInUsd;
+      const aaveFeeUsd        = loanNotional * 0.0005;
+      const netProfitUsd      = grossProfitUsd - gasCostUsd - aaveFeeUsd;
+
+      // Informational only (depth ratio) — no longer feeds P&L
       const slippagePct     = shallowerDepthUsd > 0
         ? Math.min(100, (loanNotional / shallowerDepthUsd) * 100)
         : 100;
-      // If trade would consume >10% of pool, the CP-formula quote is unreliable
-      // — model the slippage drag as half the spread × slippage%
-      const slippageDrag    = spreadUsd * (slippagePct / 100) * 0.5;
-      const aaveFeeUsd      = loanNotional * 0.0005;
-      const netProfitUsd    = spreadUsd - gasCostUsd - aaveFeeUsd - slippageDrag;
 
       logDebug(`Evaluated ${pair.name}`, {
         source, qsDep: qsDep.toFixed(0), ssDep: ssDep.toFixed(0),
         spreadUsd: spreadUsd.toFixed(2), spreadPctOfLoan: spreadPctOfLoan.toFixed(2),
-        slippagePct: slippagePct.toFixed(1), net: netProfitUsd.toFixed(2),
+        roundTripOut: formatUnits(roundTripOut, inDec),
+        grossProfitUsd: grossProfitUsd.toFixed(2), net: netProfitUsd.toFixed(2),
       });
 
       return {
         pair, effectiveAmount, effectiveNotionalUsd, sizingScaled,
         qsDepthUsd: qsDep, ssDepthUsd: ssDep,
         qsOut, ssOut, spreadUsd, gasCostUsd, aaveFeeUsd, netProfitUsd,
-        cheaperDex, expensiveDex, spread,
+        // leg1Dex = buy-leg router, leg2Dex = sell-leg router — REAL round-trip winner
+        cheaperDex: leg1Dex, expensiveDex: leg2Dex, spread,
         spreadPctOfLoan, slippagePct,
         viable: netProfitUsd >= MIN_PROFIT_USD,
         source,
@@ -732,6 +756,23 @@ export class ScanLoop {
       ["address", "address", "address", "address", "uint256"],
       [r.pair.tokenIn, r.pair.tokenOut, r.cheaperDex, r.expensiveDex, minProfit]
     );
+
+    // ── REAL pre-flight: staticCall against latest chain state ─────────────
+    // Executes the full flash-loan path read-only at CURRENT reserves.
+    // Reverts (InsufficientProfit, pool guard, etc.) → abort before spending gas.
+    try {
+      await this.flashLoan!.initiateFlashLoan.staticCall(
+        r.pair.tokenIn, r.effectiveAmount, params,
+        { from: this.wallet!.address, gasPrice }
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logWarn(`Pre-flight revert — ${r.pair.name} (aborted, no gas spent)`, {
+        err: msg.slice(0, 200),
+      });
+      this.executing = false;
+      return { hash: "", status: "reverted", error: "preflight: " + msg.slice(0, 120) };
+    }
 
     let attempt = 0;
     while (attempt <= MAX_RETRIES) {
