@@ -282,7 +282,7 @@ contract FlashLoanSecure is
         uint256 premium,
         address initiator,
         bytes calldata params
-    ) external override nonReentrant whenNotPaused returns (bool) {
+    ) external override whenNotPaused returns (bool) {  // NOTE: nonReentrant removed — callback runs while initiateFlashLoan still holds the guard (fix for ReentrancyGuardReentrantCall reverts); caller-check + depth guard remain
         // ── Guard 1: must be called by the Aave pool ──
         address pool = ADDRESSES_PROVIDER.getPool();
         if (msg.sender != pool) revert UnauthorisedCaller(msg.sender, pool);
