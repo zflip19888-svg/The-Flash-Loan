@@ -50,7 +50,7 @@ export const ENV = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const MIN_PROFIT_USD      = 2.0;
-export const MIN_POOL_DEPTH_USD   = 50_000;   // soft floor per DEX side
+export const MIN_POOL_DEPTH_USD   = 45_000;   // soft floor per DEX side (lowered from 50K per East, Oct 13 2026 — SS WMATIC/USDC sits ~$46-47K)
 export const DEAD_POOL_FLOOR_USD  = 1_000;    // hard dead-pool guard
 export const STABLECOIN_MAX_SPREAD_PCT = 20;  // stablecoin phantom guard (%)
 export const MAX_GAS_GWEI        = 350;
