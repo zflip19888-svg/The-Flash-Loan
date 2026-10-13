@@ -43,8 +43,13 @@ import {
 const MIN_SPREAD_OF_LOAN_PCT = 0.05;
 /** Max spread relative to loan notional — anything higher is phantom (5%) */
 const MAX_SPREAD_OF_LOAN_PCT  = 5.0;
-/** Cap effective trade size to this fraction of the shallower pool's depth */
-const MAX_TRADE_TO_DEPTH_RATIO = 0.10;
+/** Cap effective trade size to this fraction of the shallower pool's depth.
+ *  Depth-based sizing (Oct 13, 2026): trades sized to ~2.5% of the shallower
+ *  pool so slippage stays inside the 5% phantom guard and the scanner stops
+ *  showing absurd-slippage rows at fixed sizes. */
+const MAX_TRADE_TO_DEPTH_RATIO = 0.025;
+/** Trades below this notional can't clear gas + min profit — skip them */
+const MIN_EFFECTIVE_NOTIONAL_USD = 500;
 /** Hard cap on raw spread USD — rejects overflow/garbage oracle values */
 const MAX_SPREAD_USD_ABSOLUTE = 100_000;
 /** Stale oracle: reject if same pair returns identical spread for N consecutive blocks */
@@ -108,7 +113,9 @@ const ROUTER_ABI = [
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface PairResult {
-  pair:          TokenPair;
+  pair:            TokenPair;
+  effectiveAmount: bigint;   // depth-sized amount actually quoted/executed
+  effectiveNotionalUsd: number;
   qsDepthUsd:    number;
   ssDepthUsd:    number;
   qsOut:         bigint;
@@ -124,6 +131,7 @@ interface PairResult {
   source:          SpreadSource;
   spreadPctOfLoan?: number;
   slippagePct?:     number;
+  sizingScaled?:    boolean;  // true when default size was capped by pool depth
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -330,7 +338,7 @@ export class ScanLoop {
     let hmmState: HMMState | null = null;
     if (bestResult) {
       // Spread as % of loan notional — more meaningful than % of pool depth
-      const loanNotionalEst = parseFloat(formatUnits(bestResult.pair.loanAmount, 18)) * (maticUsd * 10 || 1800);
+      const loanNotionalEst = bestResult.effectiveNotionalUsd;
       const spreadPct = bestResult.spreadUsd / Math.max(loanNotionalEst, 100) * 100;
       const prevRegime = this.lastHMMState?.regime ?? null;
       hmmState = this.hmm.update(spreadPct, bestResult.pair.name);
@@ -484,6 +492,33 @@ export class ScanLoop {
         return null;
       }
 
+      // ── Depth-based sizing: cap trade at ~2.5% of the shallower pool ───
+      const shallowerDepthUsd = Math.min(qsDep, ssDep);
+      const defaultNotional   = parseFloat(formatUnits(pair.loanAmount, inDec)) * tokenInUsd;
+      const maxNotionalUsd    = shallowerDepthUsd * MAX_TRADE_TO_DEPTH_RATIO;
+      let   effectiveAmount   = pair.loanAmount;
+      let   sizingScaled       = false;
+      if (defaultNotional > maxNotionalUsd && maxNotionalUsd > 0) {
+        const scaleBps = BigInt(Math.max(1, Math.floor((maxNotionalUsd / defaultNotional) * 10_000)));
+        effectiveAmount = (pair.loanAmount * scaleBps) / 10_000n;
+        sizingScaled    = true;
+        logDebug(`Depth-scaled ${pair.name}`, {
+          defaultNotional: defaultNotional.toFixed(0),
+          cappedNotional:  maxNotionalUsd.toFixed(0),
+          scalePct:        (Number(scaleBps) / 100).toFixed(1),
+          shallowerDepth:  shallowerDepthUsd.toFixed(0),
+        });
+      }
+      const effectiveNotionalUsd =
+        parseFloat(formatUnits(effectiveAmount, inDec)) * tokenInUsd;
+      if (effectiveNotionalUsd < MIN_EFFECTIVE_NOTIONAL_USD) {
+        logDebug(`Sized out — ${pair.name}`, {
+          effectiveNotionalUsd: effectiveNotionalUsd.toFixed(0),
+          minRequired: MIN_EFFECTIVE_NOTIONAL_USD,
+        });
+        return null;
+      }
+
       // ── Spread ─────────────────────────────────────────────────────────────
       let spread: bigint, cheaperDex: string, expensiveDex: string,
           qsOut: bigint, ssOut: bigint, source: SpreadSource;
@@ -492,11 +527,11 @@ export class ScanLoop {
         // TIER 1: oracle
         try {
           [spread, cheaperDex, expensiveDex] =
-            await this.oracle.getArbitrageSpread(pair.tokenIn, pair.tokenOut, pair.loanAmount);
+            await this.oracle.getArbitrageSpread(pair.tokenIn, pair.tokenOut, effectiveAmount);
           // also get individual quotes for logging
           [qsOut, ssOut] = await Promise.all([
-            this._routerQuote(this.qsRouter, pair.tokenIn, pair.tokenOut, pair.loanAmount),
-            this._routerQuote(this.ssRouter, pair.tokenIn, pair.tokenOut, pair.loanAmount),
+            this._routerQuote(this.qsRouter, pair.tokenIn, pair.tokenOut, effectiveAmount),
+            this._routerQuote(this.ssRouter, pair.tokenIn, pair.tokenOut, effectiveAmount),
           ]);
           source = "oracle";
         } catch (oracleErr) {
@@ -504,14 +539,14 @@ export class ScanLoop {
             err: String(oracleErr),
           });
           // fall through to DEX-direct
-          const r = await this._dexDirectSpread(pair);
+          const r = await this._dexDirectSpread(pair, effectiveAmount);
           if (!r) return null;
           ({ spread, cheaperDex, expensiveDex, qsOut, ssOut } = r);
           source = "dex-direct";
         }
       } else {
         // TIER 2: DEX-direct (no oracle deployed)
-        const r = await this._dexDirectSpread(pair);
+        const r = await this._dexDirectSpread(pair, effectiveAmount);
         if (!r) return null;
         ({ spread, cheaperDex, expensiveDex, qsOut, ssOut } = r);
         source = "dex-direct";
@@ -560,7 +595,7 @@ export class ScanLoop {
 
       // ── Profit calc (Fix: slippage-adjusted + phantom guard vs loan notional) ─
       const spreadUsd     = parseFloat(formatUnits(spread, outDec)) * (tokenOutUsd || 1);
-      const loanNotional   = parseFloat(formatUnits(pair.loanAmount, inDec)) * tokenInUsd;
+      const loanNotional   = effectiveNotionalUsd;
       if (loanNotional <= 0) return null;
 
       // Real spread % relative to LOAN NOTIONAL (not pool depth — that was the bug)
@@ -582,9 +617,8 @@ export class ScanLoop {
       }
 
       // Slippage estimation: trade size / shallower pool depth
-      const shallowerDepth = Math.min(qsDep, ssDep);
-      const slippagePct     = shallowerDepth > 0
-        ? Math.min(100, (loanNotional / shallowerDepth) * 100)
+      const slippagePct     = shallowerDepthUsd > 0
+        ? Math.min(100, (loanNotional / shallowerDepthUsd) * 100)
         : 100;
       // If trade would consume >10% of pool, the CP-formula quote is unreliable
       // — model the slippage drag as half the spread × slippage%
@@ -599,7 +633,8 @@ export class ScanLoop {
       });
 
       return {
-        pair, qsDepthUsd: qsDep, ssDepthUsd: ssDep,
+        pair, effectiveAmount, effectiveNotionalUsd, sizingScaled,
+        qsDepthUsd: qsDep, ssDepthUsd: ssDep,
         qsOut, ssOut, spreadUsd, gasCostUsd, aaveFeeUsd, netProfitUsd,
         cheaperDex, expensiveDex, spread,
         spreadPctOfLoan, slippagePct,
@@ -616,13 +651,13 @@ export class ScanLoop {
   // DEX-direct spread (Tier 2) — queries routers directly
   // ──────────────────────────────────────────────────────────────────────────
 
-  private async _dexDirectSpread(pair: TokenPair): Promise<{
+  private async _dexDirectSpread(pair: TokenPair, amount: bigint): Promise<{
     spread: bigint; cheaperDex: string; expensiveDex: string;
     qsOut: bigint; ssOut: bigint;
   } | null> {
     const [qsOut, ssOut] = await Promise.all([
-      this._routerQuote(this.qsRouter, pair.tokenIn, pair.tokenOut, pair.loanAmount),
-      this._routerQuote(this.ssRouter, pair.tokenIn, pair.tokenOut, pair.loanAmount),
+      this._routerQuote(this.qsRouter, pair.tokenIn, pair.tokenOut, amount),
+      this._routerQuote(this.ssRouter, pair.tokenIn, pair.tokenOut, amount),
     ]);
 
     if (qsOut === 0n || ssOut === 0n) return null;
@@ -692,7 +727,7 @@ export class ScanLoop {
     gasCostUsd: number,
   ): Promise<{ hash: string; status: "success" | "reverted" | "pending"; error?: string }> {
     this.executing = true;
-    const minProfit = (r.pair.loanAmount * 5n) / 10_000n;
+    const minProfit = (r.effectiveAmount * 5n) / 10_000n;
     const params    = ethers.AbiCoder.defaultAbiCoder().encode(
       ["address", "address", "address", "address", "uint256"],
       [r.pair.tokenIn, r.pair.tokenOut, r.cheaperDex, r.expensiveDex, minProfit]
@@ -703,7 +738,7 @@ export class ScanLoop {
       const nonce = await this.nonceMgr!.acquire();
       try {
         const tx = await this.flashLoan!.initiateFlashLoan(
-          r.pair.tokenIn, r.pair.loanAmount, params,
+          r.pair.tokenIn, r.effectiveAmount, params,
           { gasPrice, gasLimit: BigInt(ESTIMATED_GAS_UNITS) + 100_000n, nonce }
         );
         this.nonceMgr!.commit();
