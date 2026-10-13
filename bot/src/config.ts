@@ -50,6 +50,9 @@ export const ENV = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const MIN_PROFIT_USD      = 2.0;
+export const MIN_POOL_DEPTH_USD   = 50_000;   // soft floor per DEX side
+export const DEAD_POOL_FLOOR_USD  = 1_000;    // hard dead-pool guard
+export const STABLECOIN_MAX_SPREAD_PCT = 20;  // stablecoin phantom guard (%)
 export const MAX_GAS_GWEI        = 350;
 export const MAX_DAILY_LOSS_USD  = 100;
 export const ESTIMATED_GAS_UNITS = 750_000;
@@ -65,6 +68,7 @@ export interface TokenPair {
   tokenIn:    string;
   tokenOut:   string;
   loanAmount: bigint;
+  isStablecoin?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
